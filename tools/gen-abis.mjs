@@ -15,6 +15,8 @@ const CONTRACTS = [
   ["RoomMarket", "RoomMarket.sol"],
   ["TestAUSD", "TestAUSD.sol"],
   ["KeeperOracle", "KeeperOracle.sol"],
+  ["KuruOracle", "KuruOracle.sol"],
+  ["OracleRouter", "OracleRouter.sol"],
 ];
 
 const out = [

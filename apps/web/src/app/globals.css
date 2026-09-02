@@ -16,9 +16,19 @@
   --color-card-2: #1a1a1a;
 
   /* device shell */
+  /* Repainted by the Customize screen. The screen and the readout are deliberately
+     not themeable — they carry the price. */
   --color-shell: #f7efc2;
+  --color-shell-hi: #fbf6d6;
+  --color-shell-lo: #efe4b0;
   --color-shell-dark: #e6dca6;
   --color-shell-edge: #cfc48c;
+  --color-key: #9b8cf0;
+  /* Raised controls on the rail and the deck: a shade off the body. */
+  --color-cap: #f0e7bd;
+  --color-cap-hi: #ffffff;
+  /* Legend printed on the body. */
+  --color-ink: rgba(0, 0, 0, 0.55);
 
   /* screen */
   --color-screen: #000000;
@@ -82,7 +92,12 @@ body {
 
   /* The console body: warm plastic with a lit top edge and a shadowed bottom. */
   .shell {
-    background: linear-gradient(180deg, #fbf6d6 0%, var(--color-shell) 32%, #efe4b0 100%);
+    background: linear-gradient(
+      180deg,
+      var(--color-shell-hi) 0%,
+      var(--color-shell) 32%,
+      var(--color-shell-lo) 100%
+    );
     box-shadow:
       inset 0 2px 0 rgba(255, 255, 255, 0.75),
       inset 0 -3px 0 rgba(0, 0, 0, 0.14),

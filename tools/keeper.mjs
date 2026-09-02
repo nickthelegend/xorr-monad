@@ -30,6 +30,16 @@ const TICK_MS = Number(process.env.TICK_MS ?? 1500);
 const root = fileURLToPath(new URL("../packages/contracts/", import.meta.url));
 const deployment = JSON.parse(readFileSync(`${root}deployments/${CHAIN_ID}.json`, "utf8"));
 
+/**
+ * Publish to the feed, not to the router.
+ *
+ * With a router deployed, `oracle` is the dispatcher that markets read through — it has
+ * no prices of its own. The keeper's prints belong on the push feed behind it. MON is
+ * not in this list at all: it is priced from Kuru's order book on-chain, so there is
+ * nothing for a keeper to publish.
+ */
+const FEED = deployment.feedOracle ?? deployment.oracle;
+
 const abi = (name, dir = "src") =>
   JSON.parse(readFileSync(`${root}out/${name}.sol/${name}.json`, "utf8")).abi;
 const RangeMarketAbi = abi("RangeMarket");
@@ -86,7 +96,7 @@ async function publish() {
 
   try {
     const hash = await wallet.writeContract({
-      address: deployment.oracle,
+      address: FEED,
       abi: KeeperOracleAbi,
       functionName: "pushBatch",
       args: [feeds.map((f) => f.id), feeds.map((f) => f.price)],
@@ -105,7 +115,7 @@ async function publish() {
     if (String(e).includes("DeviationTooLarge")) {
       for (const f of feeds) {
         await wallet.writeContract({
-          address: deployment.oracle,
+          address: FEED,
           abi: KeeperOracleAbi,
           functionName: "rebase",
           args: [f.id, f.price],

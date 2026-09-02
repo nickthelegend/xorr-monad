@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePrefs, usePrefersReducedMotion } from "@/lib/usePrefs";
 
 /**
  * Client boundary for the WebGL hero. Next will not let a Server Component opt out of
@@ -15,6 +16,11 @@ const Console3D = dynamic(() => import("./device/Console3D").then((m) => m.Conso
   ),
 });
 
-export function ConsoleStage({ spin }: { spin?: boolean }) {
-  return <Console3D spin={spin} />;
+export function ConsoleStage({ spin = true }: { spin?: boolean }) {
+  const { prefs } = usePrefs();
+  const osReduced = usePrefersReducedMotion();
+
+  // Reduced motion means still, not slower. The console holds its pose.
+  const animate = spin && !prefs.reducedMotion && !osReduced;
+  return <Console3D spin={animate} />;
 }

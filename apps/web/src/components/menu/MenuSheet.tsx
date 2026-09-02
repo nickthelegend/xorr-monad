@@ -7,8 +7,24 @@ import { Leaderboard } from "./Leaderboard";
 import { AddFunds } from "./AddFunds";
 import { History } from "./History";
 import { HowToBody } from "./HowToSheet";
+import { OrderBook } from "./OrderBook";
+import { Settings } from "./Settings";
+import { Customize } from "./Customize";
+import { Account } from "./Account";
+import { Achievements } from "./Achievements";
 
-type View = "menu" | "leaderboard" | "funds" | "history" | "howto" | "about";
+type View =
+  | "menu"
+  | "leaderboard"
+  | "funds"
+  | "history"
+  | "howto"
+  | "about"
+  | "book"
+  | "settings"
+  | "customize"
+  | "account"
+  | "awards";
 
 export function MenuSheet({
   onClose,
@@ -44,6 +60,41 @@ export function MenuSheet({
     return (
       <Sheet onClose={onClose} onBack={back} title="History">
         <History tickets={tickets} />
+      </Sheet>
+    );
+
+  if (view === "book")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Kuru book">
+        <OrderBook />
+      </Sheet>
+    );
+
+  if (view === "settings")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Settings">
+        <Settings />
+      </Sheet>
+    );
+
+  if (view === "customize")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Customize">
+        <Customize />
+      </Sheet>
+    );
+
+  if (view === "account")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Account">
+        <Account />
+      </Sheet>
+    );
+
+  if (view === "awards")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Achievements">
+        <Achievements tickets={tickets} />
       </Sheet>
     );
 
@@ -153,14 +204,14 @@ export function MenuSheet({
       <div className="mt-3 grid grid-cols-3 gap-3">
         <Tile icon="🕘" label="History" onClick={() => setView("history")} />
         <Tile icon="🏆" label="Leaderboard" onClick={() => setView("leaderboard")} />
-        <Tile icon="🎁" label="Referrals" dim />
-        <Tile icon="🎨" label="Customize" dim />
-        <Tile icon="⚙️" label="Settings" dim />
-        <Tile icon="🔑" label="Account" dim />
+        <Tile icon="📖" label="Kuru book" onClick={() => setView("book")} />
+        <Tile icon="🎨" label="Customize" onClick={() => setView("customize")} />
+        <Tile icon="⚙️" label="Settings" onClick={() => setView("settings")} />
+        <Tile icon="🔑" label="Account" onClick={() => setView("account")} />
       </div>
 
       <div className="mt-3 space-y-2">
-        <Row label="All Achievements" onClick={() => setView("about")} />
+        <Row icon="🏅" label="All Achievements" onClick={() => setView("awards")} />
         <Row icon="🧭" label="How it works" onClick={() => setView("howto")} />
         <Row icon="ℹ️" label="About XORR" onClick={() => setView("about")} />
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-/** Small cream key on the shell's top rail. */
+/** Small raised key on the shell's top rail. Follows the cabinet's colourway. */
 export function RailKey({
   children,
   onClick,
@@ -17,7 +17,7 @@ export function RailKey({
       onClick={onClick}
       title={title}
       className={`key grid h-8 w-10 place-items-center rounded-lg text-[13px] ${
-        active ? "bg-white" : "bg-[#f0e7bd]"
+        active ? "bg-[var(--color-cap-hi)]" : "bg-[var(--color-cap)]"
       }`}
     >
       {children}
@@ -43,7 +43,7 @@ export function StakeRail({
     <button
       onClick={() => onChange(value >= max ? 1 : value + 1)}
       title="stake"
-      className="key relative h-8 flex-1 overflow-hidden rounded-lg bg-[#f0e7bd]"
+      className="key relative h-8 flex-1 overflow-hidden rounded-lg bg-[var(--color-cap)]"
     >
       <div
         className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#e8453c] to-[#ff7a2f]"
@@ -158,16 +158,26 @@ export function CoinStack({ count }: { count: number }) {
   );
 }
 
-/** Cream pill at the bottom of the deck, with its label underneath. */
+/** Pill at the bottom of the deck, with its label underneath. Follows the colourway. */
 export function DeckKey({ label, onClick }: { label: string; onClick?: () => void }) {
   return (
     <div className="flex flex-col items-center gap-1">
       <button
         onClick={onClick}
+        aria-label={label}
         className="key h-7 w-[74px] rounded-full"
-        style={{ background: "linear-gradient(180deg,#f3ead0,#e2d7ae)" }}
+        style={{
+          background:
+            "linear-gradient(180deg,var(--color-cap-hi),var(--color-cap))",
+        }}
       />
-      <span className="mono text-[9px] tracking-[0.16em] text-black/55">{label}</span>
+      {/* Ink is themed too: black legend on a charcoal body would be unreadable. */}
+      <span
+        className="mono text-[9px] tracking-[0.16em]"
+        style={{ color: "var(--color-ink)" }}
+      >
+        {label}
+      </span>
     </div>
   );
 }

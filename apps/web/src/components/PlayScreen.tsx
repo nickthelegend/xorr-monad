@@ -13,6 +13,8 @@ import {
 } from "@xorr/sdk";
 import { usePaperDesk } from "@/lib/usePaperDesk";
 import { useBand } from "@/lib/useBand";
+import { usePrefs, useApplyTheme, usePrefersReducedMotion } from "@/lib/usePrefs";
+import { useSound } from "@/lib/useSound";
 import { DeviceFrame } from "./device/DeviceFrame";
 import { RangeChart } from "./device/RangeChart";
 import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
@@ -32,15 +34,29 @@ const COIN_TONE: Record<string, string> = {
 
 export function PlayScreen() {
   const router = useRouter();
-  const desk = usePaperDesk("BTC");
+  const { prefs, set: setPref } = usePrefs();
+  const osReduced = usePrefersReducedMotion();
+  const reducedMotion = prefs.reducedMotion || osReduced;
+
+  useApplyTheme(prefs.theme);
+
+  const desk = usePaperDesk(prefs.market);
   const { state, setMarketKey, setTier, setRunning, fire, reset } = desk;
   const band = useBand(state.market, state.tier, state.spot);
+  const play = useSound(prefs.sound);
 
   const [stakeStep, setStakeStep] = useState(2); // $1.5
-  const [sound, setSound] = useState(false);
   const [sheet, setSheet] = useState<null | "menu" | "howto">(null);
   const [live, setLive] = useState(false);
   const [flash, setFlash] = useState<null | { kind: "won" | "lost"; text: string }>(null);
+
+  // Open on the round the player last chose, once.
+  const [appliedDefaults, setAppliedDefaults] = useState(false);
+  useEffect(() => {
+    if (appliedDefaults) return;
+    if (prefs.tier !== state.tier) setTier(prefs.tier);
+    setAppliedDefaults(true);
+  }, [appliedDefaults, prefs.tier, state.tier, setTier]);
 
   const stake = STAKE_STEPS[stakeStep - 1];
   const payout = payoutFor(stake, band.multiplierBps);
@@ -62,13 +78,20 @@ export function PlayScreen() {
       kind: t.status === "won" ? "won" : "lost",
       text: t.status === "won" ? `+${fmtUsd(t.payout - t.stake)}` : `−${fmtUsd(t.stake)}`,
     });
+    // A bigger win rings brighter — the sound reports the size, not just the outcome.
+    play(
+      t.status === "won" ? "win" : "loss",
+      t.status === "won" ? Math.min(1, Number(t.payout - t.stake) / Number(t.stake) / 4) : 0.5,
+    );
     const id = setTimeout(() => setFlash(null), 1400);
     return () => clearTimeout(id);
   }, [state.lastSettled]);
 
   const doFire = useCallback(() => {
     const r = fire(band.low, band.high, stake);
+    if (r.ok) play("fire");
     if (!r.ok) {
+      play("reject");
       const e = r.error;
       setFlash({
         kind: "lost",
@@ -85,7 +108,7 @@ export function PlayScreen() {
       });
       setTimeout(() => setFlash(null), 1400);
     }
-  }, [fire, band.low, band.high, stake]);
+  }, [fire, band.low, band.high, stake, play]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -93,13 +116,18 @@ export function PlayScreen() {
       if (e.key === "a" || e.key === "A" || e.key === "Enter") {
         e.preventDefault();
         doFire();
-      } else if (e.key === "[") band.nudge(-0.08);
-      else if (e.key === "]") band.nudge(0.08);
+      } else if (e.key === "[") {
+        band.nudge(-0.08);
+        play("key");
+      } else if (e.key === "]") {
+        band.nudge(0.08);
+        play("key");
+      }
       else if (e.key === "m" || e.key === "M") setSheet("menu");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doFire, band]);
+  }, [doFire, band, play]);
 
   const coins = Math.round(Number(state.balance) / 25_000_000); // one coin per $25
 
@@ -113,8 +141,12 @@ export function PlayScreen() {
         stakeStep={stakeStep}
         maxStake={STAKE_STEPS.length}
         onStakeStep={setStakeStep}
-        soundOn={sound}
-        onToggleSound={() => setSound((s) => !s)}
+        soundOn={prefs.sound}
+        onToggleSound={() => {
+          const next = !prefs.sound;
+          setPref("sound", next);
+          if (next) play("key");
+        }}
         running={state.running}
         onToggleRunning={() => setRunning(!state.running)}
       >
@@ -152,7 +184,7 @@ export function PlayScreen() {
               low={band.low}
               high={band.high}
               multiplierBps={band.multiplierBps}
-              progress={progress}
+              progress={reducedMotion ? 0 : progress}
               openBands={state.openTickets.map((t) => ({
                 low: t.low,
                 high: t.high,
@@ -180,7 +212,11 @@ export function PlayScreen() {
               {ROUND_BLOCKS.map((b, i) => (
                 <button
                   key={b}
-                  onClick={() => setTier(i)}
+                  onClick={() => {
+                    setTier(i);
+                    setPref("tier", i);
+                    play("key");
+                  }}
                   className={`mono rounded px-1.5 py-0.5 text-[10px] tracking-wide ${
                     i === state.tier ? "bg-amber text-black" : "text-dim hover:text-white"
                   }`}
@@ -234,7 +270,10 @@ export function PlayScreen() {
             tone={COIN_TONE[state.market.key] ?? "#f7931a"}
             onClick={() => {
               const i = MARKETS.findIndex((m) => m.key === state.market.key);
-              setMarketKey(MARKETS[(i + 1) % MARKETS.length].key);
+              const next = MARKETS[(i + 1) % MARKETS.length].key;
+              setMarketKey(next);
+              setPref("market", next);
+              play("key");
             }}
           />
           <CoinStack count={coins} />

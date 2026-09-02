@@ -7,6 +7,8 @@ import {IERC20} from "../src/interfaces/IERC20.sol";
 import {IXorrOracle} from "../src/interfaces/IXorrOracle.sol";
 import {TestAUSD} from "../src/TestAUSD.sol";
 import {KeeperOracle} from "../src/oracles/KeeperOracle.sol";
+import {KuruOracle} from "../src/oracles/KuruOracle.sol";
+import {OracleRouter} from "../src/oracles/OracleRouter.sol";
 import {ChainlinkOracle} from "../src/oracles/ChainlinkOracle.sol";
 import {PythOracle, IPyth} from "../src/oracles/PythOracle.sol";
 import {XorrVault} from "../src/XorrVault.sol";
@@ -17,13 +19,18 @@ import {CalibratedMarkets} from "../src/config/CalibratedMarkets.sol";
 /// @notice Deploys the whole desk. Every network-specific address is read from env so
 ///         nothing stale is ever baked into the source.
 ///
-///   ORACLE_KIND = keeper | chainlink | pyth
+///   ORACLE_KIND = keeper | chainlink | pyth   (the fallback source)
+///   KURU_MON_AUSD = Kuru MON-AUSD order book; when set, MON is priced from the book
 ///   AUSD        = existing token address, or unset to deploy the 6-decimal test token
 ///   SEED_VAULT  = AUSD units of starting bankroll (test token only)
 contract Deploy is Script {
     bytes32 constant BTC = keccak256("BTC-USD");
     bytes32 constant ETH = keccak256("ETH-USD");
     bytes32 constant MON = keccak256("MON-USD");
+
+    address internal kuruOracle;
+    address internal oracleRouter;
+    address internal feedOracle;
 
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
@@ -64,6 +71,35 @@ contract Deploy is Script {
             address extra = vm.envOr("KEEPER", address(0));
             if (extra != address(0)) o.setUpdater(extra, true);
             oracle = o;
+        }
+
+        // ---- route MON to Kuru's order book, everything else to the feed above
+        //
+        // MON trades on Monad's own CLOB, so its price should come from the book and
+        // nowhere else. BTC and ETH have no Monad-native venue deep enough to settle
+        // on, so they keep the published feed. The router lets one market contract
+        // serve both without knowing the difference.
+        address kuruBook = vm.envOr("KURU_MON_AUSD", address(0));
+        if (kuruBook != address(0)) {
+            KuruOracle kuru = new KuruOracle(deployer);
+            // 5% is wide for a book this liquid; past it the midpoint is not a price
+            // anyone would trade at and the market refuses to open or settle on it.
+            kuru.setBook(MON, kuruBook, 500, true);
+
+            OracleRouter router = new OracleRouter(deployer);
+            router.setFallback(address(oracle), bytes8("keeper"));
+            router.setRoute(MON, address(kuru), bytes8("kuru"));
+
+            console2.log("KuruOracle        ", address(kuru));
+            console2.log("  Kuru book       ", kuruBook);
+            console2.log("OracleRouter      ", address(router));
+
+            kuruOracle = address(kuru);
+            oracleRouter = address(router);
+            // Keep a handle on the publishing feed: the keeper authorises and pushes
+            // there, not at the router, which only dispatches.
+            feedOracle = address(oracle);
+            oracle = router;
         }
         console2.log("Oracle            ", address(oracle));
 
@@ -163,6 +199,11 @@ contract Deploy is Script {
         // Indexers and the leaderboard scan from here. Scanning earlier is pointless
         // and, on a forked node, pushes the query at the upstream RPC.
         vm.serializeUint(o, "deployBlock", block.number);
+        vm.serializeAddress(o, "kuruOracle", kuruOracle);
+        // The feed the keeper publishes to. Equals `oracle` when no router is deployed.
+        vm.serializeAddress(o, "feedOracle", feedOracle == address(0) ? address(oracle) : feedOracle);
+        vm.serializeAddress(o, "oracleRouter", oracleRouter);
+        vm.serializeAddress(o, "kuruBook", vm.envOr("KURU_MON_AUSD", address(0)));
         vm.serializeString(o, "oracleKind", kind);
         vm.serializeAddress(o, "ausd", asset);
         vm.serializeAddress(o, "oracle", oracle);

@@ -29,6 +29,8 @@ WHALE=0x2A68ba1833cDf93fa9Da1EEbd7F46242aD8E90c5
 
 jqf() { python3 -c "import json,sys;print(json.load(open('$DEPLOYMENT'))['$1'])"; }
 ORACLE=$(jqf oracle); VAULT=$(jqf vault); RANGE=$(jqf rangeMarket); ROOM=$(jqf roomMarket)
+# The keeper publishes to the feed, not to the router that dispatches to it.
+FEED=$(python3 -c "import json;d=json.load(open('$DEPLOYMENT'));print(d.get('feedOracle') or d['oracle'])")
 DEPLOY_BLOCK=$(jqf deployBlock)
 
 echo "→ funding from a real AUSD holder"
@@ -47,7 +49,7 @@ cast send --rpc-url "$RPC" --private-key "$OWNER_PK" "$VAULT" \
   "deposit(uint256)(uint256)" "$VAULT_FUND" >/dev/null
 
 echo "→ authorising the keeper"
-cast send --rpc-url "$RPC" --private-key "$OWNER_PK" "$ORACLE" \
+cast send --rpc-url "$RPC" --private-key "$OWNER_PK" "$FEED" \
   "setUpdater(address,bool)" "$KEEPER" true >/dev/null
 
 echo "→ pointing the web app at the deployment"
@@ -66,6 +68,8 @@ RPC_UPSTREAM=$RPC
 XORR_ALLOW_UNLOCKED_ACCOUNTS=1
 NEXT_PUBLIC_AUSD=$AUSD
 NEXT_PUBLIC_ORACLE=$ORACLE
+NEXT_PUBLIC_KURU_ORACLE=$(jqf kuruOracle)
+NEXT_PUBLIC_KURU_BOOK=$(jqf kuruBook)
 NEXT_PUBLIC_VAULT=$VAULT
 NEXT_PUBLIC_RANGE_MARKET=$RANGE
 NEXT_PUBLIC_ROOM_MARKET=$ROOM
