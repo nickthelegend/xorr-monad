@@ -36,13 +36,15 @@ export function HowToBody() {
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-white/55">
           <span className="text-white">The 4% fee is not the whole spread.</span> Volatility
-          moves faster than any fixed calibration, so the chance is deliberately estimated
-          off the quieter end of what the market has recently done. That keeps the vault
-          solvent when conditions change, and it costs real money: measured against
-          held-out tape the effective edge has run from about 10% on the shortest rounds to
-          upwards of 40% on the longest, moving with the volatility regime. It is always in
-          the house&apos;s favour. It is also why no win percentage is printed on the deck —
-          the model&apos;s number is a pricing input, not a forecast.
+          moves faster than any fixed calibration, so the chance quoted is not the middle of
+          what the market has recently done — it is the high end of it, taken across many
+          recent windows. Quoting a chance at or above the real one is what keeps the vault
+          solvent when the regime changes, and it costs real money: replayed across four
+          separate stretches of held-out tape the effective edge ran from about 3% to about
+          42%, depending far more on how volatile that stretch happened to be than on the
+          round length. It is always in the house&apos;s favour. It is also why no win
+          percentage is printed on the deck — the model&apos;s number is a pricing input,
+          not a forecast.
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-white/55">
           The keeper re-marks volatility on-chain as it moves, which narrows that spread

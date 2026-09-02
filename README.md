@@ -109,13 +109,17 @@ preceding window errs in *both* directions — measured on held-out tape, an uns
 ran between +5% and −25% per round depending purely on which way the regime moved. A
 market that is profitable or ruinous depending on the weather is not a market.
 
-So the modelled chance is deliberately estimated off the quieter end of what the market
-has recently done. That buys a one-sided guarantee — the vault stays solvent when
-volatility falls away under it — and it costs a wide spread. The calibration's own
-forward validation targets a few percent; measured against a *different* window the
-realised edge has run from about 10% on the shortest rounds to over 40% on the longest,
-moving with the regime. It is always in the house's favour, which is the point, but it
-is not 4% and the app does not claim it is.
+So the quoted chance is not the middle of what the market has recently done. Sigma is
+estimated off the quiet end of recent windows, and the win-rate table is quoted at the
+high end of them — the 65th percentile of what each band width actually returned across
+many recent windows, rather than a single point fit. That asymmetry is the whole safety
+argument: the multiplier is (1 − fee) / p, so quoting p below the truth pays more than
+the event is worth, and only a one-sided estimate rules that out.
+
+It costs a wide spread. Replayed across four disjoint stretches of held-out tape the
+realised edge ran from about 3% to about 42%, depending far more on how volatile the
+stretch was than on the round length. It is always in the house's favour, which is the
+point, but it is not 4% and the app does not claim it is.
 `tools/checks/paper-calibration.mjs` measures it against real tape and fails if any
 round length turns player-positive.
 

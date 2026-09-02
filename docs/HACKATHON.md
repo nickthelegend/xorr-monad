@@ -49,11 +49,13 @@ from `src/` or any deploy script.
 calibration. Fitting on the immediately preceding window errs in both directions —
 measured on held-out tape, an unshaded fit ran between +5% and −25% per round depending
 purely on which way the regime moved. So the modelled chance is estimated off the
-quieter end of recent behaviour, which buys a one-sided solvency guarantee at real cost:
-the realised edge has measured from about 10% on the shortest rounds to over 40% on the
-longest, moving with the regime. That is a worse deal for a player than the fee implies,
-it is stated in the app rather than only here, and
-`tools/checks/paper-calibration.mjs` fails if any round length turns player-positive.
+quieter end of recent behaviour and the win-rate table is quoted at the high end of it,
+which buys a one-sided solvency guarantee at real cost: replayed across four disjoint
+stretches of held-out tape the realised edge measured between about 3% and about 42%,
+driven far more by the volatility of the stretch than by the round length. That is a
+worse deal for a player than the fee implies, it is stated in the app rather than only
+here, and `tools/checks/paper-calibration.mjs` sweeps all four windows and fails if any
+round length turns player-positive on any of them — or quotes nothing at all.
 
 Closing that gap is the honest next step, and it is an operational one rather than a
 modelling trick: re-mark sigma on-chain far more often than once per deployment, so the

@@ -5,14 +5,15 @@
  * BTC returns, and measures the realised return per unit staked.
  *
  * The property that must hold is NOT "realised win rate equals the model's
- * probability". It deliberately does not: sigma is shaded 0.85x so the vault survives
- * a volatility regime change, which makes the model's probability optimistic on
- * purpose. That bias is the house edge, and it is why no win percentage is shown on
- * the deck.
+ * probability". It deliberately does not: sigma is fitted off the quiet end of recent
+ * windows and the win-rate table is quoted at the high end of them, so the model's
+ * probability is optimistic on purpose. That bias is the house edge, and it is why no
+ * win percentage is shown on the deck.
  *
- * What must hold is that the edge runs in the vault's favour at every round length.
- * A round where players come out ahead against real tape is a round that drains the
- * bankroll.
+ * What must hold is that the edge runs in the vault's favour at every round length, on
+ * every window — a round that is vault-positive on one stretch of tape and
+ * player-positive on the next is not calibrated, it is lucky. A round where players
+ * come out ahead against real tape is a round that drains the bankroll.
  */
 const { PaperEngine, PaperFeed } = await import("../../packages/sdk/src/engine.ts");
 const { MARKETS } = await import("../../packages/sdk/src/markets.ts");
