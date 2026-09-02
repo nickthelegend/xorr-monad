@@ -5,13 +5,15 @@
       "name": "xorr-web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@xorr/web", "start"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     },
     {
       "name": "xorr-web-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@xorr/web", "dev"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

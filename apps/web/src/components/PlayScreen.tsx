@@ -18,6 +18,7 @@ import { useSound } from "@/lib/useSound";
 import { DeviceFrame } from "./device/DeviceFrame";
 import { RangeChart } from "./device/RangeChart";
 import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
+import { BookStrip } from "./device/BookStrip";
 import { MenuSheet } from "./menu/MenuSheet";
 import { HowToSheet } from "./menu/HowToSheet";
 import { LiveConsole } from "./LiveConsole";
@@ -227,6 +228,9 @@ export function PlayScreen() {
             </div>
           </div>
         </div>
+
+        {/* Kuru's book, on the deck, for the market XORR prices from it. */}
+        {state.market.key === "MON" ? <BookStrip onOpen={() => setSheet("menu")} /> : null}
 
         {/* --------------------------------------------- pays panel + fire key */}
         <div className="mt-2 flex gap-2">
