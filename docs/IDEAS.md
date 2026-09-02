@@ -168,12 +168,14 @@ Working down the ranking, these are live and checked against the running product
 
 Plus infrastructure that was not on the list but the above needed:
 **OracleRouter** (per-market dispatch), **order-book quote maths** with 7 tests,
-`/api/kuru`, `/api/rpc` (a proxy with a method allowlist), `pnpm check:kuru`, and a
-band-limit floor at the first measured knot that closed a −72.8% pricing hole.
+`/api/kuru`, `/api/rpc` (a proxy with a method allowlist), `pnpm check:kuru`, a
+band-limit floor at the first measured knot that closed a −72.8% pricing hole, a
+dust guard so no single order can set the mark, and a setup script that adapts to
+whatever the AUSD holder actually has.
 
 ## Not built
 
-85 of the 100. The honest reasons, by category:
+76 of the 100. The honest reasons, by category:
 
 - **#5, MON as a funded live market** — declined, not skipped. The book rests: 17 trades
   in 24 hours and no volume in the last hour. A three-second range on a price that
