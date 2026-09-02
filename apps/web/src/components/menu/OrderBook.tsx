@@ -19,7 +19,15 @@ interface Book {
     spreadBps: number;
     bids: Level[];
     asks: Level[];
-    marks?: { mid: number; micro: number; topBidSize: number; topAskSize: number };
+    marks?: {
+      mid: number;
+      micro: number;
+      topBidSize: number;
+      topAskSize: number;
+      mark: "MID" | "MICRO";
+      microGuarded: boolean;
+      dustFloor: number;
+    };
   };
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
   health?: string;
@@ -50,7 +58,19 @@ const HEALTH: Record<string, { tone: string; label: string }> = {
 };
 
 const px = (v: number) => v.toFixed(6);
-const sz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(1));
+/**
+ * Sizes, at the precision the number is actually about.
+ *
+ * One decimal is right for a ladder of three-hundred-MON rests and wrong for the dust
+ * order the guard exists to reject: 0.000138 MON printed as "0.0" reads as an empty
+ * side, which is a different claim entirely.
+ */
+const sz = (v: number) => {
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  if (v === 0) return "0";
+  if (v < 0.1) return v.toPrecision(2);
+  return v.toFixed(1);
+};
 
 /**
  * Kuru's order book, as the contract sees it.
@@ -141,31 +161,8 @@ export function OrderBook() {
           <p className="mt-2 text-[11px] leading-relaxed text-white/45">{book.reason}</p>
         ) : null}
 
-        {/* Why the mark is not simply the midpoint. */}
-        {b.marks && Math.abs(b.marks.micro - b.marks.mid) > 1e-9 ? (
-          <div className="mt-3 rounded-xl bg-[#0d0d0d] p-3">
-            <div className="flex items-baseline justify-between">
-              <span className="label">Midpoint</span>
-              <span className="tnum text-[12px] text-white/50">{px(b.marks.mid)}</span>
-            </div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <span className="label">Microprice · used</span>
-              <span className="tnum text-[13px] font-semibold text-amber">
-                {px(b.marks.micro)}
-              </span>
-            </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-white/40">
-              {sz(b.marks.topBidSize)} rests on the bid against {sz(b.marks.topAskSize)} on
-              the ask, so a midpoint between them is a price neither side would trade at.
-              The mark is weighted toward the thinner side —{" "}
-              {(
-                (Math.abs(b.marks.micro - b.marks.mid) / b.marks.mid) *
-                10_000
-              ).toFixed(0)}{" "}
-              bps from the midpoint.
-            </p>
-          </div>
-        ) : null}
+        {/* How this book becomes one number, and which rule is in force right now. */}
+        {b.marks ? <MarkExplainer marks={b.marks} /> : null}
       </div>
 
       {/* ---- the ladder */}
@@ -229,9 +226,12 @@ export function OrderBook() {
         <Addr label="Kuru market" value={book.market} />
         <Addr label="XORR oracle" value={book.oracle} />
         <p className="mt-3 text-[11px] leading-relaxed text-white/45">
-          XORR&apos;s MON mark is the midpoint of these resting orders, read on-chain by{" "}
-          <span className="text-white">KuruOracle</span>. No relayer, no API, nothing
-          off-chain between the venue and the price.
+          XORR&apos;s MON mark is{" "}
+          {book.onchain?.marks?.mark === "MICRO"
+            ? "the size-weighted midpoint of these resting orders"
+            : "the midpoint of these resting orders"}
+          , read on-chain by <span className="text-white">KuruOracle</span>. No relayer,
+          no API, nothing off-chain between the venue and the price.
         </p>
       </div>
     </div>
@@ -280,4 +280,82 @@ function fmtNum(v: number | null | undefined): string {
   if (v === 0) return "0";
   if (v >= 1000) return v.toLocaleString("en-US", { maximumFractionDigits: 0 });
   return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+/**
+ * Which rule turns the book into a price, stated rather than implied.
+ *
+ * Showing this only when the microprice happens to differ from the midpoint reads as
+ * "the mark is the midpoint" on every book where the two agree — which is exactly the
+ * case when the dust guard has just overridden the weighting. The interesting state is
+ * the guard firing, so name the configured rule in every state and say when it was
+ * overridden and why.
+ */
+function MarkExplainer({
+  marks,
+}: {
+  marks: NonNullable<NonNullable<Book["onchain"]>["marks"]>;
+}) {
+  const differs = Math.abs(marks.micro - marks.mid) > 1e-9;
+  const gapBps = marks.mid > 0 ? (Math.abs(marks.micro - marks.mid) / marks.mid) * 10_000 : 0;
+
+  if (marks.mark === "MID") {
+    return (
+      <div className="mt-3 rounded-xl bg-[#0d0d0d] p-3">
+        <div className="flex items-baseline justify-between">
+          <span className="label">Midpoint · used</span>
+          <span className="tnum text-[13px] font-semibold text-amber">{px(marks.mid)}</span>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+          This book is marked on the plain midpoint of best bid and best ask —{" "}
+          {sz(marks.topBidSize)} against {sz(marks.topAskSize)}. Resting size is not
+          weighted in.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl bg-[#0d0d0d] p-3">
+      <div className="flex items-baseline justify-between">
+        <span className="label">Midpoint</span>
+        <span className="tnum text-[12px] text-white/50">{px(marks.mid)}</span>
+      </div>
+      <div className="mt-1 flex items-baseline justify-between">
+        <span className="label">
+          Microprice{marks.microGuarded ? " · guarded" : " · used"}
+        </span>
+        <span
+          className={`tnum text-[13px] font-semibold ${
+            marks.microGuarded ? "text-white/50" : "text-amber"
+          }`}
+        >
+          {px(marks.micro)}
+        </span>
+      </div>
+
+      {marks.microGuarded ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+          This book is marked on the size-weighted midpoint, but one side is dust —{" "}
+          {sz(marks.topBidSize)} on the bid against {sz(marks.topAskSize)} on the ask,
+          under the {sz(marks.dustFloor)} floor. Weighting against that would let a
+          fraction of a MON move the mark, so the oracle falls back to the plain
+          midpoint until the side is real again.
+        </p>
+      ) : differs ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+          {sz(marks.topBidSize)} rests on the bid against {sz(marks.topAskSize)} on the
+          ask, so a midpoint between them is a price neither side would trade at. The
+          mark is weighted toward the thinner side — {gapBps.toFixed(0)} bps from the
+          midpoint.
+        </p>
+      ) : (
+        <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+          {sz(marks.topBidSize)} rests on the bid against {sz(marks.topAskSize)} on the
+          ask. The sides are balanced enough that weighting by size lands on the
+          midpoint anyway.
+        </p>
+      )}
+    </div>
+  );
 }

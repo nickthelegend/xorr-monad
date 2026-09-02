@@ -150,7 +150,7 @@ export async function GET() {
   const pub = createPublicClient({ chain, transport: http(RPC) });
 
   try {
-    const [top, depth, marks, params, stats] = await Promise.all([
+    const [top, depth, marks, params, cfg, stats] = await Promise.all([
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
@@ -175,6 +175,14 @@ export async function GET() {
         functionName: "marketParams",
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>,
+      // How this book is configured to produce a mark, so the panel can name the rule
+      // the contract is actually applying rather than assume one.
+      pub.readContract({
+        address: KURU_ORACLE,
+        abi: KuruOracleAbi,
+        functionName: "books",
+        args: [MON_ID],
+      }) as Promise<readonly [Address, number, number, bigint, number, number, boolean]>,
       venueStats(KURU_BOOK),
     ]);
 
@@ -193,6 +201,22 @@ export async function GET() {
     const asks = toLevels(askPx, askSz);
     const bid = Number(bid8) / 1e8;
     const ask = Number(ask8) / 1e8;
+
+    /**
+     * Which rule produced the mark, and whether it was allowed to run.
+     *
+     * The oracle can be set to weight the mark by resting size, but it refuses to do so
+     * off a side that is dust — one twentieth of the depth floor is the threshold, and
+     * below it the mark falls back to the plain midpoint. Both facts have to reach the
+     * panel: a reader looking at a microprice book that currently equals the midpoint
+     * should be told the guard is why, not left to infer the market is priced on the
+     * midpoint by design.
+     */
+    const [, , , minDepth, , markEnum] = cfg;
+    const mark = markEnum === 1 ? ("MICRO" as const) : ("MID" as const);
+    const dustFloorRaw = minDepth / 20n;
+    const microGuarded =
+      mark === "MICRO" && dustFloorRaw > 0n && (marks[2] < dustFloorRaw || marks[3] < dustFloorRaw);
 
     return NextResponse.json(
       {
@@ -215,6 +239,10 @@ export async function GET() {
             micro: Number(marks[1]) / 1e8,
             topBidSize: Number(marks[2]) / SIZE_PRECISION,
             topAskSize: Number(marks[3]) / SIZE_PRECISION,
+            // The rule in force on-chain, and whether the dust guard overrode it.
+            mark,
+            microGuarded,
+            dustFloor: Number(dustFloorRaw) / SIZE_PRECISION,
           },
         },
         // The venue's own rules, read from the book rather than assumed.
