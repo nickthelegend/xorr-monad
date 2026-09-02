@@ -20,6 +20,7 @@ import { RangeChart } from "./device/RangeChart";
 import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
 import { BookStrip } from "./device/BookStrip";
 import { HouseBattery } from "./device/HouseBattery";
+import { CutoffRing } from "./device/CutoffRing";
 import { MenuSheet } from "./menu/MenuSheet";
 import { HowToSheet } from "./menu/HowToSheet";
 import { LiveConsole } from "./LiveConsole";
@@ -185,6 +186,22 @@ export function PlayScreen() {
                 {state.ready ? fmtPrice(state.spot, state.market.dp) : "—"}
               </div>
             </div>
+            {/* The nearest open ticket's remaining blocks, if there is one. */}
+            {state.openTickets.length > 0 ? (
+              <div className="flex items-center gap-2">
+                <CutoffRing
+                  openBlock={state.openTickets[0].openBlock}
+                  expiryBlock={state.openTickets[0].expiryBlock}
+                  block={state.block}
+                />
+                {state.openTickets.length > 1 ? (
+                  <span className="tnum text-[10px] text-dim">
+                    +{state.openTickets.length - 1}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="text-right">
               <div className="label">Available</div>
               <div className="tnum mt-1 text-[15px] font-semibold text-white">
