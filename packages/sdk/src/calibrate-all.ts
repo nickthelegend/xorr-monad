@@ -44,6 +44,14 @@ const IDS: Record<string, string> = {
  * Build T(z) on the contract's 0.25 grid from real closes, then enforce the two
  * properties the contract validates: non-decreasing, and bounded by 1e6.
  */
+/**
+ * Where in the recent distribution of realised win rates the quoted table sits.
+ *
+ * Tuned against tools/checks/paper-calibration.mjs, which replays a stretch of tape
+ * this fit never sees and measures what the desk's default band actually pays.
+ */
+const ENVELOPE_PERCENTILE = Number(process.env.ENVELOPE_PERCENTILE ?? 0.65);
+
 function buildTable(closes: number[], seconds: number, sigma: number): number[] {
   const t: number[] = [];
   let prev = 0;
@@ -71,9 +79,14 @@ function buildTable(closes: number[], seconds: number, sigma: number): number[] 
  * band off the envelope gives the most generous chance the recent market has offered,
  * which makes the multiplier the least generous the evidence supports.
  */
-function buildEnvelopeTable(recent: number[], seconds: number, windowLen: number): number[] {
+function buildEnvelopeTable(
+  recent: number[],
+  seconds: number,
+  windowLen: number,
+  percentile = ENVELOPE_PERCENTILE,
+): number[] {
   const stride = Math.max(1, Math.floor(windowLen / 4));
-  const best = new Array(17).fill(0);
+  const observed: number[][] = Array.from({ length: 17 }, () => []);
   let windows = 0;
 
   for (let start = 0; start + windowLen <= recent.length; start += stride) {
@@ -82,16 +95,28 @@ function buildEnvelopeTable(recent: number[], seconds: number, windowLen: number
     if (!(sigma > 0)) continue;
     windows++;
     for (let i = 0; i <= 16; i++) {
-      const p = empiricalProb(w, seconds, i * 0.25 * sigma);
-      if (p > best[i]) best[i] = p;
+      observed[i].push(empiricalProb(w, seconds, i * 0.25 * sigma));
     }
   }
   if (windows === 0) return buildTable(recent, seconds, sigmaOver(recent, seconds));
 
+  /**
+   * A high percentile, not the outright maximum.
+   *
+   * The same argument that governs quietSigma governs this. Taking the best window any
+   * width has ever shown prices every band off a single unusually still stretch of
+   * tape: the quoted chance runs tens of points above the realised one, the multiplier
+   * collapses, and the shortest round stops quoting altogether because its ceiling
+   * falls under its own probability floor. A safest-possible book with nothing in it
+   * is not a safe book. A high percentile keeps the one-sided guarantee — quoted at or
+   * above realised in most regimes — while leaving a game worth playing.
+   */
   const t: number[] = [];
   let prev = 0;
   for (let i = 0; i <= 16; i++) {
-    const v = Math.min(1_000_000, Math.max(prev, Math.round(best[i] * 1e6)));
+    const xs = observed[i].sort((a, b) => a - b);
+    const idx = Math.min(xs.length - 1, Math.floor(percentile * xs.length));
+    const v = Math.min(1_000_000, Math.max(prev, Math.round(xs[idx] * 1e6)));
     t.push(v);
     prev = v;
   }
@@ -237,7 +262,7 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
    * nothing to protect: its multiplier ceiling is bound by the probability floor rather
    * than by sigma, so shading it further buys margin for free.
    */
-  const ROUND_SAFETY = [0.35, 0.90, 0.95, 1.0, 1.0, 1.0];
+  const ROUND_SAFETY = [0.60, 0.90, 0.95, 1.0, 1.0, 1.0];
 
   /**
    * Price off the CALMEST volatility the market has shown recently, not the latest.
@@ -288,8 +313,22 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
    */
   const HOLDOUT = Math.min(20_000, Math.floor(recent.length / 3));
   const holdout = recent.slice(-HOLDOUT);
+  /**
+   * Quote the envelope, not the point fit.
+   *
+   * A single fitted table is a best guess at T(z) over one window, so in any stretch
+   * calmer than that window the real win rate sits above the quoted one — and since
+   * the multiplier is (1 - edge) / p_model, quoting a chance below the truth pays the
+   * player more than the event is worth. The three-second round is where this bites:
+   * a third of its rounds close exactly where they opened, so its realised rate is
+   * dominated by a point mass no point fit tracks, and it was the round that kept
+   * coming out player-positive against tape the fit had not seen.
+   *
+   * The envelope takes the highest rate each width has shown across recent windows,
+   * which is the one-sided guarantee the vault actually needs.
+   */
   const probTables = ROUND_BLOCKS.map((b) =>
-    buildTable(shapeWindow, tierSeconds(b), sigmaOver(shapeWindow, tierSeconds(b))),
+    buildEnvelopeTable(shapeWindow, tierSeconds(b), Math.max(600, tierSeconds(b) * 10)),
   );
 
   /**

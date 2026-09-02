@@ -101,8 +101,15 @@ console.log(
 check(Number(b8) === Math.floor(Number(bid) / 1e10), "oracle's bid is the venue's bid");
 check(Number(a8) === Math.floor(Number(ask) / 1e10), "oracle's ask is the venue's ask");
 
-// The mark may be the plain midpoint or the size-weighted microprice, so ask the
-// contract which and check against that rather than assuming.
+// Which rule this book is marked on comes from the book's own configuration, not from
+// comparing the two marks — when the dust guard fires they are equal, and inferring
+// "midpoint" from that would report the guard as a design choice.
+const [, , , minDepth, , markEnum] = await pub.readContract({
+  address: deployment.kuruOracle,
+  abi: KuruOracleAbi,
+  functionName: "books",
+  args: [MON],
+});
 const [mid8, micro8, topBid, topAsk] = await pub.readContract({
   address: deployment.kuruOracle,
   abi: KuruOracleAbi,
@@ -115,24 +122,40 @@ const [price] = await pub.readContract({
   functionName: "latest",
   args: [MON],
 });
-const usingMicro = price === micro8 && micro8 !== mid8;
+
+/** Sizes at a precision where dust does not round to zero — dust is the point here. */
+const size = (raw) => {
+  const v = Number(raw) / 1e10;
+  return v !== 0 && v < 0.1 ? v.toPrecision(2) : v.toFixed(1);
+};
+
+const configuredMicro = markEnum === 1;
+// KuruOracle refuses to weight against a side under a twentieth of the depth floor.
+const dustFloor = minDepth / 20n;
+const guarded = configuredMicro && dustFloor > 0n && (topBid < dustFloor || topAsk < dustFloor);
+
 console.log(
   `marks     mid ${(Number(mid8) / 1e8).toFixed(6)}  micro ${(Number(micro8) / 1e8).toFixed(6)}  ` +
-    `sizes ${(Number(topBid) / 1e10).toFixed(1)} bid / ${(Number(topAsk) / 1e10).toFixed(1)} ask\n`,
-);
-check(
-  price === mid8 || price === micro8,
-  `the price the market settles on is the configured mark (${usingMicro ? "microprice" : "midpoint"})`,
-  `${price}`,
+    `sizes ${size(topBid)} bid / ${size(topAsk)} ask` +
+    `\n          configured ${configuredMicro ? "MICRO" : "MID"}` +
+    (guarded ? `, guarded to the midpoint (floor ${size(dustFloor)} MON)` : "") +
+    `\n`,
 );
 
-/**
- * A book this lopsided must not be marked at the midpoint. The microprice has to sit
- * strictly between the two, and on the thin side of the middle.
- */
-if (usingMicro) {
+if (!configuredMicro) {
+  check(price === mid8, "the market settles on the midpoint, as configured", `${price}`);
+} else if (guarded) {
+  /**
+   * The guard is the interesting case, so assert it rather than accept either answer:
+   * with a side this thin the mark must be the plain midpoint, because weighting
+   * against dust would let a fraction of a MON set the price the market settles on.
+   */
+  check(price === mid8, "a dust side cannot set the mark — it falls back to the midpoint", `${price}`);
+  check(micro8 === mid8, "and marks() reports the same fallback the market settles on");
+} else {
+  check(price === micro8, "the market settles on the microprice, as configured", `${price}`);
   check(price > mid8 === topBid > topAsk, "the mark leans toward the thinner side");
-  check(price > Number(b8) && price < Number(a8), "and stays strictly inside the spread");
+  check(price > b8 && price < a8, "and stays strictly inside the spread");
 }
 
 // ---- depth decodes into a real ladder

@@ -21,6 +21,19 @@ const BTC = MARKETS.find((m) => m.key === "BTC");
 const SPOT = 77_000_00000000n;
 const ROUNDS = 3000;
 
+/**
+ * Where in the tape to start replaying.
+ *
+ * The three-second round has come out player-positive on one stretch of tape and
+ * comfortably vault-positive on another, which is the whole risk: an edge measured on
+ * a single window says nothing about the regime the market is actually in. Sweeping
+ * the start offset walks the same tables across disjoint stretches, and every one of
+ * them has to hold.
+ */
+const OFFSETS = process.env.REPLAY_OFFSET
+  ? [Number(process.env.REPLAY_OFFSET)]
+  : [0, 12_000, 24_000, 36_000];
+
 /** Real one-second closes — the same tape the pricing tables were measured on. */
 async function realReturns(symbol, want) {
   const closes = [];
@@ -47,14 +60,18 @@ async function realReturns(symbol, want) {
 const RETURNS = await realReturns("BTCUSDT", 60_000);
 console.log(`replaying ${RETURNS.length} real one-second BTC returns\n`);
 
+let anyBad = false;
+const worst = new Map();
+
+for (const OFFSET of OFFSETS) {
+console.log(`\nreplay starting ${OFFSET} seconds into the tape`);
 console.log("tier  round   model%   realised%   paid/staked   edge     verdict");
 console.log("-".repeat(70));
 
-let anyBad = false;
 for (let tier = 0; tier < BTC.rounds.length; tier++) {
   const r = BTC.rounds[tier];
   const engine = new PaperEngine({ startingBalance: 10n ** 15n, vaultAssets: 10n ** 18n });
-  const feed = new PaperFeed(BTC, SPOT, RETURNS, tier * 977);
+  const feed = new PaperFeed(BTC, SPOT, RETURNS, (tier * 977 + OFFSET) % Math.max(1, RETURNS.length - 1));
 
   const limits = engine.limitsFor(BTC, tier, SPOT);
   const half = (limits.minHalfWidth1e4 + limits.maxHalfWidth1e4) / 2n;
@@ -78,6 +95,24 @@ for (let tier = 0; tier < BTC.rounds.length; tier++) {
     n++;
   }
 
+  /**
+   * A round that quotes nothing is a failure, not a pass.
+   *
+   * Dividing by n here yields NaN when the desk refused every ticket, and NaN > 1 is
+   * false — so a round the player cannot actually buy used to print "vault +" and let
+   * the whole check succeed. The safest possible book is the one with no book, and it
+   * is not what this is measuring.
+   */
+  if (n === 0) {
+    anyBad = true;
+    console.log(
+      `${String(tier).padStart(4)}  ${(r.seconds + "s").padStart(6)}  ` +
+        `${"—".padStart(6)}  ${"—".padStart(9)}   ${"—".padStart(11)}   ` +
+        `${"—".padStart(7)}  *** QUOTED NOTHING ***`,
+    );
+    continue;
+  }
+
   const realised = wins / n;
   const q = quoted / n;
   const ratio = Number(returned) / Number(staked);
@@ -89,10 +124,23 @@ for (let tier = 0; tier < BTC.rounds.length; tier++) {
       `${(realised * 100).toFixed(1).padStart(9)}   ${ratio.toFixed(4).padStart(11)}   ` +
       `${(edge * 100).toFixed(2).padStart(6)}%  ${bad ? "*** VAULT LOSES ***" : "vault +"}`,
   );
+  const prev = worst.get(tier);
+  if (!prev || edge < prev.edge) worst.set(tier, { edge, offset: OFFSET, round: r.seconds });
 }
+}
+
+console.log("\nthinnest edge each round showed across every window");
+console.log("-".repeat(70));
+for (const [tier, w] of [...worst.entries()].sort((a, b) => a[0] - b[0])) {
+  console.log(
+    `${String(tier).padStart(4)}  ${(w.round + "s").padStart(6)}  ` +
+      `${(w.edge * 100).toFixed(2).padStart(7)}%  at offset ${w.offset}`,
+  );
+}
+
 console.log(
   anyBad
-    ? "\nFAIL: at least one round length pays players more than they stake"
-    : "\nPASS: every round length is vault-positive against real tape",
+    ? "\nFAIL: a round pays players more than they stake, or quotes nothing at all"
+    : `\nPASS: every round length is vault-positive on all ${OFFSETS.length} windows of real tape`,
 );
 process.exit(anyBad ? 1 : 0);
