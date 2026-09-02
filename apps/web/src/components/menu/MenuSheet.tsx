@@ -12,6 +12,7 @@ import { Settings } from "./Settings";
 import { Customize } from "./Customize";
 import { Account } from "./Account";
 import { Achievements } from "./Achievements";
+import { Vault } from "./Vault";
 
 type View =
   | "menu"
@@ -24,7 +25,8 @@ type View =
   | "settings"
   | "customize"
   | "account"
-  | "awards";
+  | "awards"
+  | "vault";
 
 export function MenuSheet({
   onClose,
@@ -88,6 +90,13 @@ export function MenuSheet({
     return (
       <Sheet onClose={onClose} onBack={back} title="Account">
         <Account />
+      </Sheet>
+    );
+
+  if (view === "vault")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="The vault">
+        <Vault />
       </Sheet>
     );
 
@@ -192,8 +201,10 @@ export function MenuSheet({
             ↓ DEPOSIT
           </button>
           <button
+            onClick={() => setView("vault")}
             aria-label="withdraw"
-            className="grid h-9 w-9 place-items-center rounded-lg bg-[#242424]"
+            title="The vault"
+            className="grid h-9 w-9 place-items-center rounded-lg bg-[#242424] transition-colors hover:bg-[#2e2e2e]"
           >
             ↑
           </button>
@@ -212,6 +223,7 @@ export function MenuSheet({
 
       <div className="mt-3 space-y-2">
         <Row icon="🏅" label="All Achievements" onClick={() => setView("awards")} />
+        <Row icon="🏦" label="The vault · take the house side" onClick={() => setView("vault")} />
         <Row icon="🧭" label="How it works" onClick={() => setView("howto")} />
         <Row icon="ℹ️" label="About XORR" onClick={() => setView("about")} />
       </div>
