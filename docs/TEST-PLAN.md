@@ -426,9 +426,13 @@ identical after three seconds with reduced motion on, visibly rotated with it of
 
 ## Summary
 
+Counted from the item tables in this document. A-section items are the 53 Solidity unit
+tests named individually; `forge test` now runs 104 in total, the remainder being the
+cases added for the order book, the vault reserve model and the band solver.
+
 | Section | Items | Pass | Untested |
 |---|---|---|---|
-| A. Contracts (unit) | 53 + 11 new | 64 | 0 |
+| A. Contracts (unit) | 53 | 53 | 0 |
 | B. SDK | 6 | 6 | 0 |
 | C. Build / static | 5 | 5 | 0 |
 | D. Landing | 8 | 8 | 0 |
@@ -437,9 +441,44 @@ identical after three seconds with reduced motion on, visibly rotated with it of
 | G. Live console | 13 | 13 | 0 |
 | H. On-chain integration | 7 | 6 | 1 |
 | I. External integrations | 4 | 4 | 0 |
-| **Total** | **142** | **141** | **1** |
+| J. Kuru order book — contracts | 24 | 24 | 0 |
+| K. Kuru order book — API and UI | 11 | 11 | 0 |
+| L. Kuru swap | 9 | 9 | 0 |
+| M. Preferences, sound and motion | 9 | 9 | 0 |
+| N. Account and Achievements | 9 | 9 | 0 |
+| O. The vault (LP deposit/withdraw) | 17 | 17 | 0 |
+| P. Pricing invariants | 6 | 6 | 0 |
+| Q. The mark and the venue's rules | 12 | 12 | 0 |
+| R. Round timer and house battery | 11 | 11 | 0 |
+| **Total** | **239** | **238** | **1** |
 
 Zero FAIL remaining. One item is untestable here and is marked so below.
+
+### Re-run of the whole plan after the last round of fixes
+
+Everything deterministic was re-run from scratch against the same fork after the final
+changes, rather than trusting the earlier per-item results:
+
+| Gate | Result |
+|---|---|
+| `forge test` | 104 passed, 0 failed |
+| SDK `node --test` | 33 passed, 0 failed |
+| `pnpm typecheck` | clean, both packages |
+| Solidity ↔ TypeScript parity | 1,728 quotes identical |
+| `pnpm check:chain` | exact match, every market × tier |
+| `pnpm check:kuru` | PASS, including the dust-guard assertion |
+| `pnpm check:edge` | PASS on all 4 windows |
+| `pnpm check:width` | 33 cells, 0 negative, minimum edge 16.7% |
+| Mock/stub scan, first-party code | 1 match, a test-only oracle double under `test/` |
+| Console on a clean tab, `/` and `/play` | no messages at all |
+
+Thinnest vault edge any round showed on any window: **3.83%** (3s, offset 0). The other
+rounds' worst cases were 7.48%, 18.30%, 26.10%, 18.51% and 23.47%.
+
+A live ticket was fired on the re-marked contract to confirm the whole loop still holds
+after the tables changed: stake `1,500,000` left the wallet in a real signed
+transaction (status `0x1`, 3 events, block 101451523), and the keeper settled it for
+`1,901,700` — a 1.268x payout on a 3s BTC band.
 
 ## Untested (dependency genuinely unavailable)
 
@@ -474,6 +513,19 @@ Every one of these was found by exercising the running product.
 | — | Keeper and admin scripts collided | Both signed from the same account | Keeper runs on its own authorised account |
 | — | Demo script could not run against real AUSD | Called `mint`, which only the test token has | Requires a funded balance instead; `tools/setup-local.sh` funds from a real holder |
 | C-5 | A contract named `MockOracle` was deployable | — | Replaced by `KeeperOracle`, a real push feed with a deviation guard; the test double moved to `test/helpers/TestOracle.sol`, unreachable from `src/` |
+
+### Fixes from the final pass
+
+| Item | Defect | Why it mattered | Fix |
+|---|---|---|---|
+| R-6 | The cutoff ring counted down `openTickets[0]` | Insertion order is not cutoff order — fire a 15m round then a 3s one and the ring showed the 15m ticket while the urgent one settled unannounced | Ring and burn overlay both take the minimum expiry |
+| Q-12 | The panel said XORR's mark "is the midpoint" | The MON book is configured MICRO on-chain; the two only agreed because the dust guard was firing, so the panel reported a guard as a design choice | Read `books()` for the rule in force, and say when the guard overrode it |
+| Q-11 | Dust printed as `0.0` | The whole sentence is about a 0.000138 MON ask being dust; rounding it to "0.0" reads as an empty side | Sizes under 0.1 print at two significant figures, in the panel and in `check:kuru` |
+| — | `check:kuru` inferred the mark by comparing the two values | Cannot distinguish "configured MID" from "configured MICRO, guarded" | Reads the configuration, and now asserts the guard rather than accepting either answer |
+| P-* | Shipped pricing tables came from a point fit | `buildEnvelopeTable` — the one-sided guarantee the vault needs — was written, documented and never called, so in any window calmer than the fit the quoted chance sat below the realised one and the multiplier overpaid. This is why the 3s round had gone player-positive three times | Quote the envelope, at the 65th percentile rather than the maximum |
+| — | `check:edge` printed "vault +" for a round that quoted nothing | `wins / 0` is NaN and `NaN > 1` is false, so the emptiest possible book passed | Zero quotes is now an explicit failure |
+| — | `check:edge` measured one window | The 3s round's realised win rate swings from 46% to 78% across four disjoint stretches of the same tape — a single window says nothing about the regime | Sweeps four windows and reports the thinnest edge each round showed anywhere |
+| — | App, README and hackathon notes quoted "about 10% on the shortest rounds to over 40% on the longest" | The envelope changed the shape of the spread, not just its size — the edge no longer climbs with round length | Restated as roughly 3% to 42%, driven by regime rather than round length |
 
 ## Evidence for the on-chain items
 
