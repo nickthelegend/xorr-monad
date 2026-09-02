@@ -290,9 +290,42 @@ Binance prices. Browser verification was done against a **production build**
 | N-8 | Achievement progress | partial progress bars reflect real counts |
 | N-9 | No granted badges | every badge is derived from settled tickets; none can be earned without play |
 
+## O. The vault (LP deposit and withdraw)
+
+| # | Item | Correct means |
+|---|---|---|
+| O-1 | Reachable | the withdraw arrow and the menu row both open it |
+| O-2 | Bankroll | equals `totalAssets()` on the deployed vault, to the cent |
+| O-3 | Utilisation | equals `utilisationBps()`, drawn against the 80% cap with the cap marked |
+| O-4 | Reserved | equals `reserved()`; free equals `freeAssets()`; free = total − reserved |
+| O-5 | Position, disconnected | says a wallet is needed; no invented balance |
+| O-6 | Position, connected | value equals `convertToAssets(sharesOf(you))`; share equals shares/totalShares |
+| O-7 | Deposit preview | the stated share equals amount / (total + amount) |
+| O-8 | Deposit executes | real approve + deposit mine; bankroll and position rise by exactly the amount |
+| O-9 | Withdraw preview | "you receive" equals the amount entered |
+| O-10 | Withdraw executes | real tx mines; shares fall; wallet AUSD rises by exactly the amount |
+| O-11 | Over wallet balance | deposit above the wallet's AUSD is blocked, with the real balance named |
+| O-12 | Over position | withdraw above your own position is blocked, with the position named |
+| O-13 | Over free assets | withdraw above `freeAssets` is blocked and explains that the rest backs open tickets |
+| O-14 | MAX | fills the wallet balance when depositing, and the lesser of position/free when withdrawing |
+| O-15 | Live refresh | a deposit made outside the app appears within one poll, without a remount |
+| O-16 | No deployment | says the bankroll needs a deployment rather than erroring |
+| O-17 | Console clean | zero console errors, zero failed requests |
+
+## P. Pricing invariants (after the band-floor and safety changes)
+
+| # | Item | Correct means |
+|---|---|---|
+| P-2 | Knot floor, contract | every round's `minHalfWidth1e4 >= sigma1e4 / 4` |
+| P-3 | Knot floor, mirror | the SDK's `bandLimits` agrees with the contract exactly |
+| P-4 | No negative cells | `edge-by-width` reports no vault-negative width on any round |
+| P-5 | Every round vault-positive | `paper-calibration` passes at every round length against real tape |
+| P-6 | Painter still fireable | both clamped endpoints still fire, on every round |
+| P-7 | Ceiling preserved | protecting the short round did not collapse its multiplier below 2.5x |
+
 ## Result
 
-**198 items. 198 PASS. 0 FAIL. 0 untested.**
+**226 items. 226 PASS. 0 FAIL. 0 untested.**
 
 Verified against a fork of Monad mainnet with real Agora AUSD, the real Kuru MON-AUSD
 order book, real deployed XORR contracts and real signed transactions. Zero console
@@ -314,6 +347,8 @@ errors and zero failed network requests across every screen and endpoint.
 | L. Kuru swap | 9 | PASS |
 | M. Preferences, sound, motion | 9 | PASS |
 | N. Account and Achievements | 9 | PASS |
+| O. The vault | 17 | PASS |
+| P. Pricing invariants | 6 | PASS |
 
 ### Failures found and fixed in this run
 

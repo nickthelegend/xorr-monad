@@ -237,7 +237,15 @@ export function Vault() {
     }
   }, [vault, ausd, units, account, mode, s, read]);
 
-  if (!LIVE_CONFIGURED) {
+  /**
+   * Check for the vault specifically, not just "is anything deployed".
+   *
+   * A deployment can carry a range market without a vault address configured, and the
+   * broader check passed while the read below returned early — leaving the screen
+   * saying "reading the vault" forever with nothing to read. An unconfigured screen
+   * should say so immediately.
+   */
+  if (!LIVE_CONFIGURED || !vault || !ausd) {
     return (
       <p className="mt-8 text-center text-[13px] leading-relaxed text-white/45">
         The bankroll lives on-chain, so this needs a deployment.
