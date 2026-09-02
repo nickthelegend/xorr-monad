@@ -19,6 +19,7 @@ import { DeviceFrame } from "./device/DeviceFrame";
 import { RangeChart } from "./device/RangeChart";
 import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
 import { BookStrip } from "./device/BookStrip";
+import { HouseBattery } from "./device/HouseBattery";
 import { MenuSheet } from "./menu/MenuSheet";
 import { HowToSheet } from "./menu/HowToSheet";
 import { LiveConsole } from "./LiveConsole";
@@ -232,7 +233,7 @@ export function PlayScreen() {
 
           {/* round selector, on the glass */}
           <div className="mt-1 flex items-center justify-between border-t border-[#161616] pt-2">
-            <span className="label">Cutoff</span>
+            <HouseBattery utilisationBps={state.utilisationBps} />
             <div className="flex gap-1">
               {ROUND_BLOCKS.map((b, i) => (
                 <button

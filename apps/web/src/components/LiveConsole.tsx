@@ -16,6 +16,7 @@ import { useBand } from "@/lib/useBand";
 import { ADDRESSES, LIVE_CONFIGURED, activeChain } from "@/lib/chain";
 import { DeviceFrame } from "./device/DeviceFrame";
 import { RangeChart } from "./device/RangeChart";
+import { HouseBattery } from "./device/HouseBattery";
 import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
 
 const STAKE_STEPS = [1_000_000n, 1_500_000n, 2_000_000n, 3_000_000n, 5_000_000n, 10_000_000n];
@@ -165,7 +166,10 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
           </div>
 
           <div className="mt-1 flex items-center justify-between border-t border-[#161616] pt-2">
-            <span className="label tnum">blk {state.block.toString()}</span>
+            <div className="flex items-center gap-3">
+              <span className="label tnum">blk {state.block.toString()}</span>
+              <HouseBattery utilisationBps={state.utilisationBps} />
+            </div>
             <div className="flex gap-1">
               {ROUND_BLOCKS.map((b, i) => (
                 <button
