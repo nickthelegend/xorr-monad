@@ -165,6 +165,11 @@ Working down the ranking, these are live and checked against the running product
 | 33 | Account screen with real chain data | real balances, live head block, deployment addresses |
 | 44 | Sound — a synthesised console voice | no AudioContext before a gesture; win rings brighter |
 | 65 | Reduced motion that is genuinely still | hero pixel-identical after 3s; visibly rotates without it |
+| 75 | Insufficient-gas detection before firing | an address with a genuinely zero balance is warned that firing will fail |
+| 84 | Graceful degradation when 3D cannot render | WebGL probe plus a context-loss handler and an honest message |
+| 91 | Deployment addresses printed in the UI | Account screen lists range market, vault, AUSD and oracle |
+| 97 | Architecture doc for the pricing model | README covers the measured distribution and the spread honestly |
+| 99 | Threat model for the oracle | every guard in KuruOracle documents what it defends against |
 
 Plus infrastructure that was not on the list but the above needed:
 **OracleRouter** (per-market dispatch), **order-book quote maths** with 7 tests,
