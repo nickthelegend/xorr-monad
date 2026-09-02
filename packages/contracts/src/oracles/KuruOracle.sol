@@ -26,6 +26,10 @@ contract KuruOracle is IXorrOracle, Owned {
     /// @dev Kuru quotes bestBidAsk with 18 decimals; XORR settles on 8.
     uint256 internal constant SCALE_DOWN = 1e10;
     uint256 internal constant BPS = 10_000;
+    /// @dev A side must rest at least this fraction of the depth floor for its size to
+    ///      be weighted against the other. One twentieth of the floor, so dust cannot
+    ///      set the mark but ordinary imbalance still can.
+    uint256 internal constant MICRO_MIN_DEPTH_DIVISOR = 20;
 
     /// @notice How a book is turned into a single price.
     enum Mark {
@@ -196,6 +200,20 @@ contract KuruOracle is IXorrOracle, Owned {
         (uint256 bidSize, uint256 askSize) = _topSizes(marketId);
         if (bidSize == 0 || askSize == 0) return (bid + ask) / 2;
 
+        /**
+         * Both sides must carry real size before their ratio is trusted.
+         *
+         * The weighting is a ratio, so a single dust order sets it: with hundreds of
+         * MON bid against a thousandth of one offered, the microprice pins itself to
+         * the ask and a mark that should be robust becomes something anyone can move a
+         * hundred basis points for the price of a dust order. Below the floor the
+         * ratio carries no information and the plain midpoint is the honest answer.
+         */
+        uint256 floorSize = b.minDepth / MICRO_MIN_DEPTH_DIVISOR;
+        if (floorSize != 0 && (bidSize < floorSize || askSize < floorSize)) {
+            return (bid + ask) / 2;
+        }
+
         // Each price weighted by the size resting on the other side.
         return (bid * askSize + ask * bidSize) / (bidSize + askSize);
     }
@@ -205,6 +223,43 @@ contract KuruOracle is IXorrOracle, Owned {
         (, , uint256[] memory bidSz, , uint256[] memory askSz) = depth(marketId, 1);
         bidSize = bidSz.length > 0 ? bidSz[0] : 0;
         askSize = askSz.length > 0 ? askSz[0] : 0;
+    }
+
+    /**
+     * @notice The venue's own rules, read from the book rather than assumed.
+     *
+     * Tick size and the size bounds are what make a quote actionable: a band narrower
+     * than a tick cannot be traded against, and a size under the minimum cannot be
+     * filled at all. Reading them from the market means this contract never has to
+     * hard-code a number the venue is free to change.
+     */
+    function marketParams(bytes32 marketId)
+        external
+        view
+        returns (
+            uint256 pricePrecision,
+            uint256 sizePrecision,
+            uint256 tickSize,
+            uint256 minSize,
+            uint256 maxSize,
+            uint256 takerFeeBps
+        )
+    {
+        Book memory b = books[marketId];
+        if (address(b.market) == address(0)) revert NoBook();
+        (
+            uint32 pp,
+            uint96 sp,
+            ,
+            ,
+            ,
+            ,
+            uint32 tick,
+            uint96 minS,
+            uint96 maxS,
+            uint96 fee
+        ) = b.market.getMarketParams();
+        return (pp, sp, tick, minS, maxS, fee);
     }
 
     /// @notice Both marks side by side, so the difference is visible rather than assumed.
@@ -220,9 +275,15 @@ contract KuruOracle is IXorrOracle, Owned {
 
         (bidSize, askSize) = _topSizes(marketId);
         mid8 = ((bid + ask) / 2) / SCALE_DOWN;
-        micro8 = bidSize == 0 || askSize == 0
-            ? mid8
-            : ((bid * askSize + ask * bidSize) / (bidSize + askSize)) / SCALE_DOWN;
+        // Report what the oracle would actually use, dust guard included.
+        micro8 = _mark(b, marketId, bid, ask) / SCALE_DOWN;
+        if (b.mark == Mark.MID) {
+            uint256 floorSize = b.minDepth / MICRO_MIN_DEPTH_DIVISOR;
+            micro8 = (bidSize == 0 || askSize == 0)
+                || (floorSize != 0 && (bidSize < floorSize || askSize < floorSize))
+                ? mid8
+                : ((bid * askSize + ask * bidSize) / (bidSize + askSize)) / SCALE_DOWN;
+        }
     }
 
     function hasMarket(bytes32 marketId) external view returns (bool) {

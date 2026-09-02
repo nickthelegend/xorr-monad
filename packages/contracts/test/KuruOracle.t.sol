@@ -30,6 +30,26 @@ contract BookDouble is IKuruOrderBook {
     function getL2Book(uint32, uint32) external view returns (bytes memory) {
         return book;
     }
+
+    /// @dev The live MON-AUSD market's actual configuration.
+    function getMarketParams()
+        external
+        pure
+        returns (uint32, uint96, address, uint256, address, uint256, uint32, uint96, uint96, uint96)
+    {
+        return (
+            1e8,                                        // pricePrecision
+            1e10,                                       // sizePrecision
+            address(0),                                 // base: native MON
+            18,
+            0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a, // quote: AUSD
+            6,
+            100,                                        // tickSize
+            2e12,                                       // minSize
+            2e19,                                       // maxSize
+            0                                           // takerFeeBps
+        );
+    }
 }
 
 contract KuruOracleUnitTest is Test {
@@ -265,6 +285,68 @@ contract KuruOracleUnitTest is Test {
     function test_MarkIsOwnerOnly() public {
         vm.expectRevert();
         oracle.setMark(MON, KuruOracle.Mark.MICRO);
+    }
+
+    /**
+     * The weighting is a ratio, so a single dust order can set it. With hundreds on one
+     * side and a thousandth on the other, an unguarded microprice pins to the thin side
+     * — a mark anyone could move a hundred basis points for the price of a dust order.
+     */
+    function test_DustOnOneSideCannotSetTheMark() public {
+        book.set(25_442_000_000_000_000, 25_952_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(376e10),   // real size
+                uint256(0),
+                uint256(2_595_200), uint256(13_000)    // dust: 0.0000013
+            )
+        );
+        vm.startPrank(owner);
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+        oracle.setDepthFloor(MON, 100, 100e10, 4);
+        vm.stopPrank();
+
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 2_569_700, "falls back to the midpoint rather than pinning to dust");
+    }
+
+    /// @notice Ordinary imbalance must still move the mark — the guard is for dust only.
+    function test_OrdinaryImbalanceStillWeightsTheMark() public {
+        book.set(25_442_000_000_000_000, 25_952_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(376e10),
+                uint256(0),
+                uint256(2_595_200), uint256(20e10)   // thin, but real
+            )
+        );
+        vm.startPrank(owner);
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+        oracle.setDepthFloor(MON, 100, 100e10, 4);
+        vm.stopPrank();
+
+        (uint256 p,) = oracle.latest(MON);
+        assertGt(p, 2_569_700, "a genuinely thin ask still pulls the mark up");
+        assertLt(p, 2_595_200, "but never past the ask");
+    }
+
+    /// @notice The venue's rules are read from the book, never hard-coded here.
+    function test_MarketParamsComeFromTheVenue() public view {
+        (uint256 pp, uint256 sp, uint256 tick, uint256 minS, uint256 maxS, uint256 fee) =
+            oracle.marketParams(MON);
+        assertEq(pp, 1e8, "price precision");
+        assertEq(sp, 1e10, "size precision");
+        assertEq(tick, 100, "tick size");
+        assertEq(minS, 2e12, "minimum order");
+        assertEq(maxS, 2e19, "maximum order");
+        assertEq(fee, 0, "taker fee");
+    }
+
+    function test_MarketParamsRevertsForAnUnknownBook() public {
+        vm.expectRevert(KuruOracle.NoBook.selector);
+        oracle.marketParams(keccak256("NOPE"));
     }
 
     function test_DepthDecodesBidsThenAsks() public {

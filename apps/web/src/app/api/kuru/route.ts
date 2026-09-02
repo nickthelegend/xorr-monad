@@ -150,7 +150,7 @@ export async function GET() {
   const pub = createPublicClient({ chain, transport: http(RPC) });
 
   try {
-    const [top, depth, marks, stats] = await Promise.all([
+    const [top, depth, marks, params, stats] = await Promise.all([
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
@@ -169,6 +169,12 @@ export async function GET() {
         functionName: "marks",
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
+      pub.readContract({
+        address: KURU_ORACLE,
+        abi: KuruOracleAbi,
+        functionName: "marketParams",
+        args: [MON_ID],
+      }) as Promise<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>,
       venueStats(KURU_BOOK),
     ]);
 
@@ -210,6 +216,13 @@ export async function GET() {
             topBidSize: Number(marks[2]) / SIZE_PRECISION,
             topAskSize: Number(marks[3]) / SIZE_PRECISION,
           },
+        },
+        // The venue's own rules, read from the book rather than assumed.
+        params: {
+          tickSize: Number(params[2]) / PRICE_PRECISION,
+          minSize: Number(params[3]) / SIZE_PRECISION,
+          maxSize: Number(params[4]) / SIZE_PRECISION,
+          takerFeeBps: Number(params[5]),
         },
         ...assess(bid, ask, bids, asks, stats),
         // Aggregates the chain cannot produce. Never used for pricing.

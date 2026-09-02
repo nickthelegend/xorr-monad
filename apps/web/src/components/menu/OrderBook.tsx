@@ -21,6 +21,7 @@ interface Book {
     asks: Level[];
     marks?: { mid: number; micro: number; topBidSize: number; topAskSize: number };
   };
+  params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
   health?: string;
   tradeable?: boolean;
   reason?: string;
@@ -201,6 +202,23 @@ export function OrderBook() {
           <p className="mt-3 text-[11px] leading-relaxed text-white/40">
             These aggregates come from Kuru&apos;s API and are never used to price
             anything. The ladder above is read from the chain.
+          </p>
+        </div>
+      ) : null}
+
+      {/* ---- the venue's own rules */}
+      {book.params ? (
+        <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+          <div className="label">Market rules · read from the book</div>
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+            <Stat label="Tick size" value={book.params.tickSize.toFixed(6)} />
+            <Stat label="Taker fee" value={`${book.params.takerFeeBps} bps`} />
+            <Stat label="Min order" value={`${fmtNum(book.params.minSize)} MON`} />
+            <Stat label="Max order" value={`${fmtNum(book.params.maxSize)} MON`} />
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-white/40">
+            A band narrower than one tick cannot be traded against, so nothing here is
+            hard-coded — the venue is free to change these and the market follows.
           </p>
         </div>
       ) : null}

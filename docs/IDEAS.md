@@ -153,7 +153,10 @@ Working down the ranking, these are live and checked against the running product
 | 8 | "Priced by Kuru" provenance, answerable from the chain | `OracleRouter.sourceOf` returns the oracle and label |
 | 9 | Depth-weighted mid instead of the naive midpoint | live book rests 358.9 bid against 18.0 ask; the mark moves 90 bps and the panel shows why |
 | 10 | Book-health verdict | reads RESTING with the reason, and refuses to trade on it |
+| 16 | Read Kuru's market params and show tick size / min size | read through the oracle, not hard-coded: tick 0.000001, min 200 MON |
 | 17 | Depth floor — real size required behind the quote | rejects a tight quote on dust; live book rests 376 MON |
+| 46 | Round timer counting blocks, not seconds | 97→72 at exactly 3.3/s; turns red at 6 of 33 blocks |
+| 47 | House battery showing utilisation against the cap | drove the live vault to 78.94%, watched it fill and turn amber, and the next ticket refused |
 | 25 | Top up by selling MON into Kuru's book | 12 MON → $0.305304, the book's touch fell by exactly 12 |
 | 29 | Achievements from the real tape | 4 earned after 9 rounds; "Regular" read 9/20 against 9 settled |
 | 30 | Vault screen — take the house side | deposit $100 → 3.23% share; withdraw $80; bankroll moved |

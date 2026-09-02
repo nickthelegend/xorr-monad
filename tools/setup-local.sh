@@ -9,6 +9,7 @@
 # Usage: tools/setup-local.sh [vaultAusdUnits] [playerAusdUnits]
 set -euo pipefail
 
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RPC=${RPC_URL:-http://127.0.0.1:8545}
 DEPLOYMENT="$ROOT/packages/contracts/deployments/143.json"
@@ -36,6 +37,33 @@ DEPLOY_BLOCK=$(jqf deployBlock)
 echo "→ funding from a real AUSD holder"
 cast rpc --rpc-url "$RPC" anvil_impersonateAccount "$WHALE" >/dev/null
 cast rpc --rpc-url "$RPC" anvil_setBalance "$WHALE" 0x56BC75E2D63100000 >/dev/null
+
+# Take what the holder actually has, not what we hoped for.
+#
+# This is a real address on a forked chain, and repeated setups draw it down. Asking
+# for a fixed amount worked until it did not, and then failed with a raw
+# ERC20InsufficientBalance in the middle of a script whose next steps quietly carried
+# on with stale addresses.
+HELD=$(cast call --rpc-url "$RPC" "$AUSD" "balanceOf(address)(uint256)" "$WHALE" 2>/dev/null | awk '{print $1+0}')
+HELD=${HELD:-0}
+WANTED=$((VAULT_FUND + PLAYER_FUND))
+if [ "$HELD" -lt "$WANTED" ]; then
+  echo "   holder has $HELD units, wanted $WANTED — scaling down"
+  # Keep the player's share whole where possible; the vault takes the remainder.
+  if [ "$HELD" -gt "$PLAYER_FUND" ]; then
+    VAULT_FUND=$((HELD - PLAYER_FUND))
+  else
+    PLAYER_FUND=$((HELD / 2))
+    VAULT_FUND=$((HELD - PLAYER_FUND))
+  fi
+fi
+if [ "$VAULT_FUND" -le 0 ] || [ "$PLAYER_FUND" -le 0 ]; then
+  echo "   The AUSD holder on this fork is empty." >&2
+  echo "   Repeated setups draw it down; restart anvil to reset the fork:" >&2
+  echo "     pnpm chain" >&2
+  exit 1
+fi
+
 cast send --rpc-url "$RPC" --unlocked --from "$WHALE" "$AUSD" \
   "transfer(address,uint256)(bool)" "$OWNER" "$VAULT_FUND" >/dev/null
 cast send --rpc-url "$RPC" --unlocked --from "$WHALE" "$AUSD" \
