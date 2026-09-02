@@ -9,6 +9,11 @@ The whole round takes three seconds.
 Monad settles a block every 300ms. That is the entire reason this works: a three-second
 round is a real market with a real cutoff, not a countdown timer waiting on a chain.
 
+**The MON market's price is an order book.** Not a feed reporting one — the midpoint of
+real resting orders on [Kuru](https://docs.kuru.io), Monad's native CLOB, read on-chain
+by a contract at the block you are settling on. There is no relayer, no API, and nothing
+off-chain between the venue and the settlement.
+
 ```
 pnpm install
 pnpm dev            # the console, on paper — no wallet, no funding
@@ -23,7 +28,8 @@ one-second market tape, and prices every band with the same code the contracts u
 
 | Piece | What it is |
 |---|---|
-| Prices | Live Binance one-second tape; MON marks against Kuru's on-chain MON-AUSD book |
+| Prices | BTC/ETH from live Binance one-second tape; **MON from Kuru's order book, on-chain** |
+| Order book | Real Kuru MON-AUSD market (`0x131A2e70…70Da9`) — depth, top of book and swaps |
 | Stablecoin | Agora **AUSD** (`0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a`), the real token |
 | Distribution | Measured from real tape per round length — not an assumed bell curve |
 | Settlement | A public transaction anyone can send once the cutoff block passes |
@@ -31,6 +37,50 @@ one-second market tape, and prices every band with the same code the contracts u
 
 There are no mocks in what ships. The one test double (`TestOracle`) lives under
 `packages/contracts/test/helpers/` and is unreachable from `src/` or any deploy script.
+
+---
+
+## The order book is the price
+
+`KuruOracle` reads `bestBidAsk()` on Kuru's deployed MON-AUSD market and returns the
+midpoint. `OracleRouter` sends MON there and BTC/ETH to the push feed, so one
+`RangeMarket` serves both without knowing the difference — and a market can be moved
+from a feed to a book without redeploying it.
+
+Reading a book instead of a feed changes the failure modes, so they are guarded rather
+than averaged away:
+
+| Condition | What the oracle does |
+|---|---|
+| One side empty | Reports **no price**. A one-sided book has no midpoint. |
+| Crossed mid-update | Reports no price. That is a snapshot artifact, not a quote. |
+| Spread wider than the guard | Reports no price. The midpoint of a very wide book is a number nobody quoted. |
+| Below 8-decimal resolution | Reports no price rather than rounding to zero. |
+
+A price feed fails by going silent. An order book fails by going **thin** — and a thin
+book still returns a number, which is the dangerous part.
+
+```
+pnpm check:kuru     # top of book, depth, health, against the deployed market
+```
+
+### Deep is not the same as live
+
+The console currently reports MON as **RESTING**: the book has ~370 MON on the touch and
+a 198 bps spread, but it has not traded in an hour. Depth answers *could I trade here*.
+Recent flow answers *does this price change* — and only the second makes a three-second
+market real. A range on a price that cannot move inside the round is a free option on
+the house, so MON stays mark-only and the app says exactly why.
+
+That verdict is the integration working, not a gap in it.
+
+### Topping up goes through the book too
+
+Everyone arriving on Monad holds MON and nobody holds AUSD, so **Add funds** opens on a
+swap that sells MON for AUSD through Kuru's router. The quote walks the real resting
+bids rather than multiplying a spot price by a size — 900 MON against the current book
+fills at an average of 0.025351 for 36 bps of impact across three levels, where quoting
+the touch would promise 0.025442 and a fill nobody could get.
 
 ---
 
@@ -92,16 +142,19 @@ tools                Keeper, model generator, calibration and verification check
 - **XorrVault** — the bankroll. Reserves the **full payout** on every open ticket, so a
   round where every player wins is still fully covered. Capped at 80% utilisation.
 - **RoomMarket** — player-vs-player rooms. The house takes a fee and carries no risk.
-- **Oracles** — `KeeperOracle` (a real push feed with a deviation guard),
+- **KuruOracle** — the MON price, read from Kuru's book on-chain. Also decodes the L2
+  ladder, so the console gets typed depth from one call instead of unpacking bytes.
+- **OracleRouter** — per-market dispatch, and `sourceOf()` so provenance is answerable
+  from the chain rather than from the interface's word.
+- **Other oracles** — `KeeperOracle` (a real push feed with a deviation guard),
   `ChainlinkOracle`, `PythOracle`. Nothing named "mock" is deployable.
 
 ### Running it live
 
 ```
-anvil --fork-url https://rpc.monad.xyz --block-time 0.3 --chain-id 143
-cd packages/contracts && forge script script/Deploy.s.sol:Deploy --broadcast \
-  --rpc-url http://127.0.0.1:8545
-tools/setup-local.sh          # funds the vault with real AUSD, starts the keeper
+pnpm chain                    # anvil, forking Monad mainnet at 300ms
+KURU_MON_AUSD=0x131a2e70a5b31a517a74b8c567149bc294470da9 pnpm deploy:local
+pnpm setup:local              # funds the vault with real AUSD, starts the keeper
 pnpm --filter @xorr/web build && pnpm --filter @xorr/web start
 ```
 
@@ -113,7 +166,7 @@ at 300ms, without spending anything.
 ## Tests
 
 ```
-pnpm test           # 71 Solidity tests, 26 TypeScript tests
+pnpm test           # 90 Solidity tests, 33 TypeScript tests
 pnpm parity         # 1,728 quotes diffed between Solidity and TypeScript
 ```
 
@@ -127,5 +180,6 @@ Beyond unit tests, `tools/checks/` holds the ones that check claims rather than 
 | `sigma-percentile.mjs` | How conservative does volatility have to be to stay solvent? |
 | `live-win.mjs` | Is a winner paid exactly the payout the ticket promised? |
 | `room-round.mjs` | Does a room's pot close out to exactly zero? |
+| `kuru-book.mjs` | Does the oracle read the deployed Kuru market, and refuse a thin one? |
 
 `docs/TEST-PLAN.md` is the full plan every component was verified against.
