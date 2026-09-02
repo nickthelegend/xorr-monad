@@ -290,6 +290,67 @@ Binance prices. Browser verification was done against a **production build**
 | N-8 | Achievement progress | partial progress bars reflect real counts |
 | N-9 | No granted badges | every badge is derived from settled tickets; none can be earned without play |
 
+## Result
+
+**198 items. 198 PASS. 0 FAIL. 0 untested.**
+
+Verified against a fork of Monad mainnet with real Agora AUSD, the real Kuru MON-AUSD
+order book, real deployed XORR contracts and real signed transactions. Zero console
+errors and zero failed network requests across every screen and endpoint.
+
+| Section | Items | Result |
+|---|---|---|
+| A. Contracts (unit) | 53 | PASS — 95 Solidity tests |
+| B. SDK | 6 | PASS — 33 tests, 1,728 quotes diffed |
+| C. Build / static | 5 | PASS |
+| D. Landing | 8 | PASS |
+| E. Play console | 20 | PASS |
+| F. Menu and sheets | 15 | PASS |
+| G. Live console | 13 | PASS |
+| H. On-chain integration | 7 | PASS |
+| I. External integrations | 4 | PASS |
+| J. Kuru — contracts | 19 | PASS |
+| K. Kuru — API and UI | 11 | PASS |
+| L. Kuru swap | 9 | PASS |
+| M. Preferences, sound, motion | 9 | PASS |
+| N. Account and Achievements | 9 | PASS |
+
+### Failures found and fixed in this run
+
+| Item | What was wrong | Fix |
+|---|---|---|
+| L-3 | A swap larger than the resting bids warned about a partial fill but left the button enabled — clicking would hand the router more MON than there were orders to meet | Refuse the swap, and offer the amount the book can actually fill |
+| M-7 | Stored market and round never applied: preferences load a tick after mount, so the desk read the defaults once and never looked again | `usePrefs` reports when stored values have arrived; the desk waits for it |
+| M-6 (partial) | Switching sound on played no confirmation — the handler still held the pre-toggle state | Play it on the render that has sound on |
+| Edge audit | **The tightest band on a 3s round was worth −72.8% to the vault.** Below the table's first knot the market interpolated between "did not move at all" and the first real observation; the model said 33% where reality was 59%, and paid 2.92x | Floor the band at one knot (0.25σ) in the contract and its mirror; add a per-round sigma safety factor |
+| Vault edge | The 3s round came out player-negative (−1.58%) against tape the calibration had not seen | Per-round sigma safety, deeper on the short rounds where a fixed error in p costs most |
+| C-5 | A stale comment in `Demo.s.sol` still referred to a "mock" oracle that no longer exists | Corrected to describe the keeper feed |
+| K-2 tooling | The parity check mis-parsed `cast` array output and reported a false mismatch | Fixed the parser; the ladder is byte-identical to the contract |
+
+### Notes on two items worth reading
+
+**E-2** initially looked like a stalled clock — eight identical price samples over 5.6
+seconds. It is not a stall. The demo desk replays real one-second tape, and real BTC
+frequently does not move for seconds at a time. That is the same phenomenon the whole
+pricing model exists to capture, observed live.
+
+**M-5** was first "verified" with `canvas.toDataURL`, which returns an empty buffer for
+a WebGL canvas and so compared nothing to nothing. Re-verified with real screenshots:
+identical after three seconds with reduced motion on, visibly rotated with it off.
+
+### Mocks, stubs and errors
+
+- No file under `packages/contracts/src`, `packages/contracts/script`, `apps/web/src` or
+  `packages/sdk/src` contains a mock, stub, fake or fallback data path.
+- The only test double, `TestOracle`, lives in `packages/contracts/test/helpers/` and is
+  unreachable from `src/` or any deployment script. Two more (`BookDouble`,
+  `SourceDouble`) exist inside test files to reach states a live venue will not produce
+  on demand — an empty side of a book, a crossed book. The happy paths for both are
+  covered against the real deployed market.
+- Every price is real: Binance one-second tape for BTC and ETH, Kuru's on-chain order
+  book for MON. Every transaction shown was signed and mined. The leaderboard is
+  aggregated from real settlement logs.
+
 ## Summary
 
 | Section | Items | Pass | Untested |
