@@ -1,0 +1,43 @@
+import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Mono, Bricolage_Grotesque } from "next/font/google";
+import "./globals.css";
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-mono",
+  display: "swap",
+});
+
+// Chunky, slightly playful display face for headlines and the wordmark.
+const display = Bricolage_Grotesque({
+  subsets: ["latin"],
+  weight: ["500", "700", "800"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+export const metadata: Metadata = {
+  title: "XORR — built for fun and money",
+  description:
+    "Short-dated range tickets on Monad. Pick a band, stack it, and find out three seconds later.",
+  openGraph: {
+    title: "XORR",
+    description: "Short-dated range tickets that die when the block does.",
+    type: "website",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#07080a",
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${plexMono.variable} ${display.variable}`}>
+      <body className="min-h-dvh antialiased">{children}</body>
+    </html>
+  );
+}

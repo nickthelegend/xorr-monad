@@ -1,0 +1,34 @@
+{
+  "name": "xorr",
+  "private": true,
+  "version": "0.1.0",
+  "description": "XORR - short-dated range tickets that die when the block does. Monad Metropolis.",
+  "packageManager": "pnpm@10.29.2",
+  "scripts": {
+    "dev": "pnpm --filter @xorr/web dev",
+    "build": "pnpm --filter @xorr/sdk build && pnpm --filter @xorr/web build",
+    "test": "pnpm test:contracts && pnpm test:sdk",
+    "test:contracts": "cd packages/contracts && forge test -vv",
+    "test:sdk": "pnpm --filter @xorr/sdk test",
+    "model": "node tools/model/build-model.mjs",
+    "chain": "anvil --fork-url https://rpc.monad.xyz --block-time 0.3 --chain-id 143 --silent",
+    "keeper": "node tools/keeper.mjs",
+    "abis": "node tools/gen-abis.mjs",
+    "calibrate": "pnpm --filter @xorr/sdk calibrate",
+    "parity": "cd packages/contracts && forge test --match-contract ParityDump -vv && pnpm --filter @xorr/sdk parity",
+    "deploy:local": "cd packages/contracts && forge script script/Deploy.s.sol:Deploy --broadcast --rpc-url http://127.0.0.1:8545",
+    "setup:local": "tools/setup-local.sh",
+    "remark": "cd packages/contracts && forge script script/Remark.s.sol:Remark --broadcast --rpc-url http://127.0.0.1:8545",
+    "check": "pnpm check:chain && pnpm check:edge",
+    "check:chain": "node tools/checks/chain-parity.mjs",
+    "check:edge": "node tools/checks/paper-calibration.mjs",
+    "check:width": "node tools/checks/edge-by-width.mjs",
+    "check:win": "node tools/checks/live-win.mjs",
+    "check:room": "node tools/checks/room-round.mjs",
+    "typecheck": "pnpm --filter @xorr/sdk exec tsc --noEmit && pnpm --filter @xorr/web exec tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "viem": "^2.22.9"
+  }
+}

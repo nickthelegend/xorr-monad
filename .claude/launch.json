@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "xorr-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@xorr/web", "start"],
+      "port": 3000
+    },
+    {
+      "name": "xorr-web-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@xorr/web", "dev"],
+      "port": 3000
+    }
+  ]
+}

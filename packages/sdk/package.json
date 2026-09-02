@@ -1,0 +1,19 @@
+{
+  "name": "@xorr/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "parity": "node --experimental-strip-types test/parity.ts",
+    "calibrate": "node --experimental-strip-types src/calibrate.ts",
+    "simulate": "node --experimental-strip-types src/simulate.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

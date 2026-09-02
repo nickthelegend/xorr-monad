@@ -1,0 +1,263 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  MARKETS,
+  ROUND_BLOCKS,
+  fmtMultiplier,
+  fmtPrice,
+  fmtUsd,
+  payoutFor,
+  roundLabel,
+} from "@xorr/sdk";
+import { useLiveDesk } from "@/lib/useLiveDesk";
+import { useBand } from "@/lib/useBand";
+import { ADDRESSES, LIVE_CONFIGURED, activeChain } from "@/lib/chain";
+import { DeviceFrame } from "./device/DeviceFrame";
+import { RangeChart } from "./device/RangeChart";
+import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls";
+
+const STAKE_STEPS = [1_000_000n, 1_500_000n, 2_000_000n, 3_000_000n, 5_000_000n, 10_000_000n];
+const COIN_TONE: Record<string, string> = { BTC: "#f7931a", ETH: "#8098ee", MON: "#836ef9" };
+
+/**
+ * The same console, wired to the chain. Block height, oracle print, quote, house
+ * utilisation and the player's tickets are all read from the deployed contracts —
+ * nothing here is simulated. Firing and settling are real transactions, and a dead RPC
+ * says so rather than quietly falling back to invented numbers.
+ */
+export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
+  const router = useRouter();
+  const [marketKey, setMarketKey] = useState("BTC");
+  const [tier, setTier] = useState(2);
+  const [stakeStep, setStakeStep] = useState(2);
+  const [sound, setSound] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  const market = useMemo(() => MARKETS.find((m) => m.key === marketKey) ?? MARKETS[0], [marketKey]);
+  const live = useLiveDesk(market, tier);
+  const { state } = live;
+  // Pass the real spot, including zero before the first read lands. Substituting a
+  // placeholder price to avoid a divide-by-zero produces a legal-looking but nonsense
+  // band window, and the band then sticks at maximum width once the real price arrives.
+  const band = useBand(market, tier, state.spot);
+  const stake = STAKE_STEPS[stakeStep - 1];
+
+  const say = useCallback((m: string) => {
+    setFlash(m);
+    setTimeout(() => setFlash(null), 2600);
+  }, []);
+
+  // Anyone can poke an expired ticket; the console pokes its own.
+  const dueId = state.tickets.find(
+    (t) => t.status === 0 && Number(state.block) >= t.expiryBlock,
+  )?.id;
+
+  useEffect(() => {
+    if (dueId === undefined || state.pending) return;
+    void live.settle(dueId).catch((e) => say(String((e as Error).message).slice(0, 60)));
+  }, [dueId, state.pending, live, say]);
+
+  const doFire = useCallback(async () => {
+    if (!state.account) {
+      await live.connect();
+      return;
+    }
+    if (!band.band) return;
+    try {
+      // Send the band's shape, not its endpoints — the contract centres it on the
+      // print at execution, so a price that moves in the meantime cannot invalidate it.
+      const hash = await live.fire(band.band.lowHalf1e4, band.band.highHalf1e4, stake);
+      say(`FIRED ${hash.slice(0, 10)}…`);
+    } catch (e) {
+      say(String((e as Error).message).split("\n")[0].slice(0, 60));
+    }
+  }, [state.account, live, band.band, stake, say]);
+
+  if (!LIVE_CONFIGURED) {
+    return (
+      <div className="tiled grid min-h-dvh place-items-center px-4">
+        <div className="w-full max-w-[420px] rounded-[26px] bg-card p-6 text-center">
+          <h2 className="text-[22px] font-extrabold">No deployment configured</h2>
+          <p className="mt-3 text-[14px] leading-relaxed text-white/55">
+            Live mode needs contract addresses. Deploy and set NEXT_PUBLIC_RANGE_MARKET
+            and NEXT_PUBLIC_AUSD — or keep playing the demo, which runs identical pricing.
+          </p>
+          <button
+            onClick={onBackToDemo}
+            className="mt-5 w-full rounded-full bg-amber-2 py-3.5 text-[14px] font-extrabold text-black"
+          >
+            BACK TO DEMO
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const coins = Math.round(Number(state.balance) / 25_000_000);
+
+  return (
+    <div className="tiled min-h-dvh">
+      <DeviceFrame
+        stakeStep={stakeStep}
+        maxStake={STAKE_STEPS.length}
+        onStakeStep={setStakeStep}
+        soundOn={sound}
+        onToggleSound={() => setSound((s) => !s)}
+        running
+        onToggleRunning={() => {}}
+      >
+        <div className="screen rounded-xl px-4 pb-2 pt-3">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="label">
+                Live · {market.symbol} · {activeChain.name}
+              </div>
+              <div className="tnum mt-1 text-[30px] font-bold leading-none text-white">
+                {state.spot > 0n ? fmtPrice(state.spot, market.dp) : "—"}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="label">Available</div>
+              <div className="tnum mt-1 text-[15px] font-semibold text-white">
+                {fmtUsd(state.balance)}
+              </div>
+            </div>
+          </div>
+
+          <div className="relative mt-3 h-[228px]">
+            {state.history.length > 1 && state.spot > 0n ? (
+              <RangeChart
+                market={market}
+                history={state.history}
+                spot={state.spot}
+                low={band.low}
+                high={band.high}
+                multiplierBps={band.multiplierBps}
+                progress={0}
+                openBands={state.tickets
+                  .filter((t) => t.status === 0)
+                  .map((t) => ({ low: t.low, high: t.high }))}
+                onDragEdge={band.setEdge}
+              />
+            ) : (
+              <div className="grid h-full place-items-center">
+                <span className="label">
+                  {state.error ? "chain unreachable" : "reading the chain"}
+                </span>
+              </div>
+            )}
+            {/* Surface chain trouble even once there is history to draw. A desk that
+                keeps rendering a stale trace while the node is failing underneath is
+                showing a price nobody can act on. */}
+            {state.error ? (
+              <div className="mono pointer-events-none absolute inset-x-0 top-1 truncate px-2 text-center text-[9px] text-red">
+                {state.error.slice(0, 90)}
+              </div>
+            ) : null}
+
+            {flash ? (
+              <div className="pop mono pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] text-amber">
+                {flash}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-1 flex items-center justify-between border-t border-[#161616] pt-2">
+            <span className="label tnum">blk {state.block.toString()}</span>
+            <div className="flex gap-1">
+              {ROUND_BLOCKS.map((b, i) => (
+                <button
+                  key={b}
+                  onClick={() => setTier(i)}
+                  className={`mono rounded px-1.5 py-0.5 text-[10px] ${
+                    i === tier ? "bg-amber text-black" : "text-dim hover:text-white"
+                  }`}
+                >
+                  {roundLabel(i)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2 flex gap-2">
+          <div className="screen flex-1 rounded-xl px-4 py-3">
+            <div className="flex items-baseline justify-between">
+              <span className="label">Pays</span>
+              <span className="tnum text-[13px] text-white">
+                {fmtUsd(stake)} <span className="text-dim">→</span>{" "}
+                <span className="text-green">
+                  {band.ready ? fmtUsd(payoutFor(stake, band.multiplierBps)) : "—"}
+                </span>
+              </span>
+            </div>
+            <div className="tnum glow-amber mt-1 text-[34px] font-bold leading-none text-amber">
+              {band.ready ? fmtMultiplier(band.multiplierBps) : "—"}
+            </div>
+            <p className="mono mt-2 text-[9px] leading-[1.45] tracking-[0.08em] text-dim">
+              SETTLEMENT IS A PUBLIC TX.
+              <br />
+              {market.rounds[tier].seconds}S ROUND ·{" "}
+              {state.account ? `${state.account.slice(0, 6)}…` : "NOT CONNECTED"}
+            </p>
+          </div>
+          <FireKey
+            onClick={() => void doFire()}
+            disabled={Boolean(state.pending) || (Boolean(state.account) && !band.ready)}
+          />
+        </div>
+
+        <div className="mt-2 flex items-stretch gap-2">
+          <BlueKey onClick={onBackToDemo}>DEMO</BlueKey>
+          <CoinKey
+            symbol={market.symbol}
+            tone={COIN_TONE[market.key] ?? "#f7931a"}
+            onClick={() => {
+              const liveMarkets = MARKETS.filter((m) => m.live);
+              const i = liveMarkets.findIndex((m) => m.key === market.key);
+              setMarketKey(liveMarkets[(i + 1) % liveMarkets.length].key);
+            }}
+          />
+          <CoinStack count={coins} />
+        </div>
+
+        <div className="mt-3 flex items-end justify-between px-1 pb-1">
+          <div className="flex gap-3">
+            <DeckKey
+              label={state.account ? "FIRE" : "CONNECT"}
+              onClick={() => void doFire()}
+            />
+            <DeckKey label="HOME" onClick={() => router.push("/")} />
+          </div>
+          <div className="tnum rounded-lg bg-black px-3 py-2 text-[15px] font-semibold text-white">
+            {fmtUsd(stake, Number(stake) % 1_000_000 === 0 ? 0 : 1)}
+          </div>
+        </div>
+      </DeviceFrame>
+
+      {state.lastTx ? (
+        <p className="mono pb-6 text-center text-[10px] text-white/40">
+          {state.lastTx.label}{" "}
+          {live.explorerTx(state.lastTx.hash) ? (
+            <a
+              href={live.explorerTx(state.lastTx.hash)!}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-amber underline"
+            >
+              {state.lastTx.hash.slice(0, 18)}…
+            </a>
+          ) : (
+            <span className="text-amber">{state.lastTx.hash.slice(0, 18)}…</span>
+          )}
+        </p>
+      ) : (
+        <p className="mono pb-6 text-center text-[10px] text-white/25">
+          market {ADDRESSES.rangeMarket?.slice(0, 12)}…
+        </p>
+      )}
+    </div>
+  );
+}
