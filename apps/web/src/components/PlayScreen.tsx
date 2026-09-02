@@ -93,13 +93,26 @@ export function PlayScreen() {
   const payout = payoutFor(stake, band.multiplierBps);
   const round = state.market.rounds[state.tier];
 
+  /**
+   * The open ticket that settles soonest.
+   *
+   * Insertion order is not cutoff order: fire a fifteen-minute round and then a
+   * three-second one and the newer ticket is the urgent one, while the list still
+   * begins with the older. The ring and the burn overlay both want the deadline that
+   * arrives first.
+   */
+  const nearest = useMemo(() => {
+    if (state.openTickets.length === 0) return null;
+    return state.openTickets.reduce((a, b) => (b.expiryBlock < a.expiryBlock ? b : a));
+  }, [state.openTickets]);
+
   // Progress of the nearest open ticket toward its cutoff, for the burn overlay.
   const progress = useMemo(() => {
-    const t = state.openTickets[0];
+    const t = nearest;
     if (!t) return 0;
     const total = Math.max(1, t.expiryBlock - t.openBlock);
     return Math.max(0, Math.min(1, (state.block - t.openBlock) / total));
-  }, [state.openTickets, state.block]);
+  }, [nearest, state.block]);
 
   // Announce settlements on the screen the way the console would.
   useEffect(() => {
@@ -187,11 +200,11 @@ export function PlayScreen() {
               </div>
             </div>
             {/* The nearest open ticket's remaining blocks, if there is one. */}
-            {state.openTickets.length > 0 ? (
+            {nearest ? (
               <div className="flex items-center gap-2">
                 <CutoffRing
-                  openBlock={state.openTickets[0].openBlock}
-                  expiryBlock={state.openTickets[0].expiryBlock}
+                  openBlock={nearest.openBlock}
+                  expiryBlock={nearest.expiryBlock}
                   block={state.block}
                 />
                 {state.openTickets.length > 1 ? (

@@ -328,6 +328,39 @@ Binance prices. Browser verification was done against a **production build**
 | P-6 | Painter still fireable | both clamped endpoints still fire, on every round |
 | P-7 | Ceiling preserved | protecting the short round did not collapse its multiplier below 2.5x |
 
+## Q. The mark, and the venue's rules
+
+| # | Item | Correct means |
+|---|---|---|
+| Q-1 | Both marks exposed | `marks()` returns midpoint, the mark in use, and the size behind each side |
+| Q-2 | Microprice direction | on a genuinely imbalanced book the mark moves toward the thinner side |
+| Q-3 | Microprice bounds | the mark is strictly inside the bid/ask, never at or past either |
+| Q-4 | Dust cannot set the mark | with one side under the size floor, the mark falls back to the midpoint |
+| Q-5 | Real imbalance still counts | a thin-but-real side still weights the mark |
+| Q-6 | `marks()` agrees with `latest()` | the number reported is the number the market settles on |
+| Q-7 | Mark is owner-only | a non-owner calling `setMark` reverts |
+| Q-8 | Spread guard unaffected | the guard measures the plain midpoint under either mark |
+| Q-9 | Market params from the venue | tick size, size bounds and taker fee are read from the book, not hard-coded |
+| Q-10 | Params for an unknown book | reverts `NoBook` rather than returning zeros |
+| Q-11 | Panel shows the rules | tick size, taker fee, min and max order rendered from `/api/kuru` |
+| Q-12 | Panel explains the mark | when the mark differs from the midpoint, both are shown with the sizes and the gap in bps |
+
+## R. Round timer and house battery
+
+| # | Item | Correct means |
+|---|---|---|
+| R-1 | Ring absent with no ticket | nothing rendered until a ticket is open |
+| R-2 | Ring counts blocks | the number is blocks remaining, decreasing at the chain's cadence, not seconds |
+| R-3 | Ring reaches the cutoff | counts down to 1 and disappears when the ticket settles |
+| R-4 | Ring urgency | amber above a fifth of the round, red at or below it |
+| R-5 | Ring accessibility | carries a live `timer` role and a label naming the blocks left |
+| R-6 | Multiple tickets | shows the nearest cutoff and a count of the others |
+| R-7 | Battery reads the source | demo desk reads the paper engine; live console reads `utilisationBps` on-chain |
+| R-8 | Battery scale | cells are filled against the 80% cap, not against 100% |
+| R-9 | Battery tones | green below three quarters of the cap, amber above, red and FULL at it |
+| R-10 | Battery matches the chain | the live figure equals `reserved / totalAssets` to two decimals |
+| R-11 | Cap refuses | at the cap a further ticket is refused on-chain rather than accepted |
+
 ## Result
 
 **231 items. 231 PASS. 0 FAIL. 0 untested.**
