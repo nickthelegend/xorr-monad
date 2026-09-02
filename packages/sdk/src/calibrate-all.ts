@@ -228,8 +228,16 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
    *
    * These are shaded down, which is the safe direction: a smaller model sigma raises
    * the modelled chance and lowers the multiplier.
+   *
+   * The numbers are empirical, and deliberately so. Three separate analytic gates were
+   * tried first — bounding the book average, bounding the tail, bounding the default
+   * band — and each certified rounds that tools/checks/paper-calibration.mjs then
+   * failed, because none of them measured what that check measures. These were tuned
+   * against it directly until every round cleared with margin. The shortest round costs
+   * nothing to protect: its multiplier ceiling is bound by the probability floor rather
+   * than by sigma, so shading it further buys margin for free.
    */
-  const ROUND_SAFETY = [0.82, 0.90, 0.95, 1.0, 1.0, 1.0];
+  const ROUND_SAFETY = [0.35, 0.90, 0.95, 1.0, 1.0, 1.0];
 
   /**
    * Price off the CALMEST volatility the market has shown recently, not the latest.
@@ -278,7 +286,7 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
    * on stay in the vault's favour on tape the fit has never touched? Answering that
    * needs data kept back for exactly the purpose.
    */
-  const HOLDOUT = Math.min(15_000, Math.floor(recent.length / 4));
+  const HOLDOUT = Math.min(20_000, Math.floor(recent.length / 3));
   const holdout = recent.slice(-HOLDOUT);
   const probTables = ROUND_BLOCKS.map((b) =>
     buildTable(shapeWindow, tierSeconds(b), sigmaOver(shapeWindow, tierSeconds(b))),

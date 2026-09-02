@@ -140,6 +140,48 @@ Ideas already built before this pass are excluded.
 
 ---
 
+## Built and verified
+
+Working down the ranking, these are live and checked against the running product:
+
+| # | Idea | Evidence |
+|---|---|---|
+| 1 | KuruOracle prices a market from the CLOB midpoint on-chain | `pnpm check:kuru`, fork tests vs the deployed market |
+| 2 | Thin-book guard — one-sided, crossed, too-wide, sub-resolution | 14 unit tests; guard demonstrated refusing and restoring |
+| 3 | On-chain L2 depth decoder | `depth()` output byte-identical to `/api/kuru` |
+| 4 | Live order-book panel, plus a one-line strip on the deck | ladder, depth bars, mid row, block number |
+| 8 | "Priced by Kuru" provenance, answerable from the chain | `OracleRouter.sourceOf` returns the oracle and label |
+| 10 | Book-health verdict | reads RESTING with the reason, and refuses to trade on it |
+| 17 | Depth floor — real size required behind the quote | rejects a tight quote on dust; live book rests 376 MON |
+| 25 | Top up by selling MON into Kuru's book | 12 MON → $0.305304, the book's touch fell by exactly 12 |
+| 29 | Achievements from the real tape | 4 earned after 9 rounds; "Regular" read 9/20 against 9 settled |
+| 30 | Vault screen — take the house side | deposit $100 → 3.23% share; withdraw $80; bankroll moved |
+| 31 | Withdraw flow (the arrow went nowhere) | wired to the vault, real transactions |
+| 32 | Settings that persist and actually do something | survives reload; every control changes behaviour |
+| 33 | Account screen with real chain data | real balances, live head block, deployment addresses |
+| 44 | Sound — a synthesised console voice | no AudioContext before a gesture; win rings brighter |
+| 65 | Reduced motion that is genuinely still | hero pixel-identical after 3s; visibly rotates without it |
+
+Plus infrastructure that was not on the list but the above needed:
+**OracleRouter** (per-market dispatch), **order-book quote maths** with 7 tests,
+`/api/kuru`, `/api/rpc` (a proxy with a method allowlist), `pnpm check:kuru`, and a
+band-limit floor at the first measured knot that closed a −72.8% pricing hole.
+
+## Not built
+
+85 of the 100. The honest reasons, by category:
+
+- **#5, MON as a funded live market** — declined, not skipped. The book rests: 17 trades
+  in 24 hours and no volume in the last hour. A three-second range on a price that
+  cannot move is a free option on the house.
+- **#26 stacking, #27 rooms** — real contracts with passing tests, but neither touches
+  the order-book track this build was aimed at.
+- **Most of tiers 4 and 5** — time. The motion and production items are individually
+  small and collectively large, and the ranking says the pitch is won or lost on tiers
+  1 and 2.
+
+---
+
 ## What got cut and why
 
 Ranked low deliberately, not forgotten:

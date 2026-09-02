@@ -39,6 +39,8 @@ export function AddFunds() {
         <span className="h-px flex-1 bg-white/10" />
       </div>
 
+      {/* No chevrons here. The market settles in AUSD on one chain, so a control that
+          looks like a dropdown would be offering a choice that does not exist. */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <div className="label">Currency</div>
@@ -47,7 +49,6 @@ export function AddFunds() {
               A
             </span>
             <span className="flex-1 text-[14px] font-semibold">AUSD</span>
-            <span className="text-white/35">⌄</span>
           </div>
         </div>
         <div>
@@ -57,7 +58,6 @@ export function AddFunds() {
               M
             </span>
             <span className="flex-1 truncate text-[14px] font-semibold">{activeChain.name}</span>
-            <span className="text-white/35">⌄</span>
           </div>
         </div>
       </div>
