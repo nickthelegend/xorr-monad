@@ -118,6 +118,74 @@ contract KuruOracleUnitTest is Test {
         assertEq(p, 0);
     }
 
+    /**
+     * A pair of dust orders one tick apart passes every spread check and is not a
+     * market. The depth floor is what separates "quoted tightly" from "tradeable".
+     */
+    function test_ATightQuoteOnNoSizeIsRefused() public {
+        book.set(25_442_000_000_000_000, 25_452_000_000_000_000); // 4 bps apart
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(1e6), // dust
+                uint256(0),
+                uint256(2_545_200), uint256(1e6)
+            )
+        );
+
+        // Without a floor, that dust prices the market.
+        (uint256 before,) = oracle.latest(MON);
+        assertGt(before, 0, "spread alone cannot tell the difference");
+
+        vm.prank(owner);
+        oracle.setDepthFloor(MON, 100, 100e10, 4); // need 100 base within 1%
+
+        (uint256 after_,) = oracle.latest(MON);
+        assertEq(after_, 0, "a tight quote on nothing is not a price");
+    }
+
+    function test_RealSizeClearsTheFloor() public {
+        book.set(25_442_000_000_000_000, 25_452_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(300e10),
+                uint256(0),
+                uint256(2_545_200), uint256(300e10)
+            )
+        );
+        vm.prank(owner);
+        oracle.setDepthFloor(MON, 100, 100e10, 4);
+
+        (uint256 p,) = oracle.latest(MON);
+        assertGt(p, 0);
+        assertGe(oracle.depthNearMid(MON), 100e10);
+    }
+
+    /// @notice Size resting far from the mid is not size you can settle against.
+    function test_DepthFarFromTheMidDoesNotCount() public {
+        book.set(25_442_000_000_000_000, 25_452_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(1e10),   // near, tiny
+                uint256(1_000_000), uint256(900e10), // far below, huge
+                uint256(0),
+                uint256(2_545_200), uint256(1e10)
+            )
+        );
+        vm.prank(owner);
+        oracle.setDepthFloor(MON, 100, 100e10, 4);
+
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 0, "a wall 60% away is not depth at the mid");
+    }
+
+    function test_DepthFloorIsOwnerOnly() public {
+        vm.expectRevert();
+        oracle.setDepthFloor(MON, 100, 1, 4);
+    }
+
     function test_DepthDecodesBidsThenAsks() public {
         // block, (bid px,sz) x2, 0 separator, (ask px,sz) x2
         bytes memory packed = abi.encode(

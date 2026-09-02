@@ -85,6 +85,10 @@ contract Deploy is Script {
             // 5% is wide for a book this liquid; past it the midpoint is not a price
             // anyone would trade at and the market refuses to open or settle on it.
             kuru.setBook(MON, kuruBook, 500, true);
+            // And require real size behind that quote: 100 MON resting within 1% of the
+            // mid. A tight spread on two dust orders passes every price check and is
+            // not a market anyone could settle against.
+            kuru.setDepthFloor(MON, 100, 100e10, 8);
 
             OracleRouter router = new OracleRouter(deployer);
             router.setFallback(address(oracle), bytes8("keeper"));

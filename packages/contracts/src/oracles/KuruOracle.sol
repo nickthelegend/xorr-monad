@@ -31,12 +31,20 @@ contract KuruOracle is IXorrOracle, Owned {
         IKuruOrderBook market;
         /// @dev Widest bid/ask spread, in bps of the mid, that still yields a price.
         uint32 maxSpreadBps;
+        /// @dev How far either side of the mid counts toward the depth floor, in bps.
+        uint32 depthBandBps;
+        /// @dev Least base-asset size that must rest inside that band, in the market's
+        ///      own size precision. Zero disables the floor.
+        uint128 minDepth;
+        /// @dev Ladder levels to inspect per side when measuring depth.
+        uint8 depthLevels;
         bool enabled;
     }
 
     mapping(bytes32 => Book) public books;
 
     event BookSet(bytes32 indexed marketId, address market, uint32 maxSpreadBps, bool enabled);
+    event DepthFloorSet(bytes32 indexed marketId, uint32 bandBps, uint128 minDepth, uint8 levels);
 
     error NoBook();
     error BadSpread();
@@ -48,12 +56,36 @@ contract KuruOracle is IXorrOracle, Owned {
         external
         onlyOwner
     {
-        books[marketId] = Book({
-            market: IKuruOrderBook(market),
-            maxSpreadBps: maxSpreadBps,
-            enabled: enabled
-        });
+        Book storage b = books[marketId];
+        b.market = IKuruOrderBook(market);
+        b.maxSpreadBps = maxSpreadBps;
+        b.enabled = enabled;
         emit BookSet(marketId, market, maxSpreadBps, enabled);
+    }
+
+    /**
+     * @notice Require real size near the mid before this book may price a market.
+     *
+     * A spread guard catches a book that is quoted badly. It does not catch one that is
+     * quoted tightly on almost nothing — a pair of dust orders a tick apart look
+     * perfect by spread and would move several percent the moment anyone touched them.
+     * Settling a derivative on that midpoint means settling on a price no real size
+     * could have traded at.
+     *
+     * @param bandBps  how far either side of the mid to count
+     * @param minDepth least size that must rest inside it, in the market's size
+     *                 precision. Zero disables the floor.
+     * @param levels   ladder levels to inspect per side
+     */
+    function setDepthFloor(bytes32 marketId, uint32 bandBps, uint128 minDepth, uint8 levels)
+        external
+        onlyOwner
+    {
+        Book storage b = books[marketId];
+        b.depthBandBps = bandBps;
+        b.minDepth = minDepth;
+        b.depthLevels = levels;
+        emit DepthFloorSet(marketId, bandBps, minDepth, levels);
     }
 
     // ----------------------------------------------------------------- reads
@@ -82,9 +114,43 @@ contract KuruOracle is IXorrOracle, Owned {
             if (spreadBps > b.maxSpreadBps) return (0, 0);
         }
 
+        // A tight quote on no size is not a price either.
+        if (b.minDepth != 0 && depthNearMid(marketId) < b.minDepth) return (0, 0);
+
         price = mid / SCALE_DOWN;
         if (price == 0) return (0, 0); // below 8-decimal resolution
         updatedAt = block.timestamp;
+    }
+
+    /**
+     * @notice Base-asset size resting within the configured band of the mid, both sides.
+     * @dev Prices in the ladder carry the market's pricePrecision and sizes its
+     *      sizePrecision; only the ratio of prices is used here, so the band comparison
+     *      is precision-free and the returned total stays in the market's own units.
+     */
+    function depthNearMid(bytes32 marketId) public view returns (uint256 total) {
+        Book memory b = books[marketId];
+        if (address(b.market) == address(0)) return 0;
+
+        uint8 levels = b.depthLevels == 0 ? 8 : b.depthLevels;
+        (, uint256[] memory bidPx, uint256[] memory bidSz, uint256[] memory askPx, uint256[] memory askSz)
+        = depth(marketId, levels);
+
+        uint256 topBid = bidPx.length > 0 ? bidPx[0] : 0;
+        uint256 topAsk = askPx.length > 0 ? askPx[0] : 0;
+        if (topBid == 0 || topAsk == 0) return 0;
+
+        uint256 mid = (topBid + topAsk) / 2;
+        uint256 band = (mid * b.depthBandBps) / BPS;
+
+        for (uint256 i = 0; i < bidPx.length; i++) {
+            if (bidPx[i] == 0) break;
+            if (mid - bidPx[i] <= band) total += bidSz[i];
+        }
+        for (uint256 i = 0; i < askPx.length; i++) {
+            if (askPx[i] == 0) break;
+            if (askPx[i] - mid <= band) total += askSz[i];
+        }
     }
 
     function hasMarket(bytes32 marketId) external view returns (bool) {
@@ -124,7 +190,7 @@ contract KuruOracle is IXorrOracle, Owned {
      *      contract does not own.
      */
     function depth(bytes32 marketId, uint32 levels)
-        external
+        public
         view
         returns (
             uint256 blockNumber,
