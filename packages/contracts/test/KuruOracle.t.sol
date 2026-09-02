@@ -186,6 +186,87 @@ contract KuruOracleUnitTest is Test {
         oracle.setDepthFloor(MON, 100, 1, 4);
     }
 
+    /**
+     * A midpoint treats both sides as equally informative. When one side rests two
+     * orders of magnitude more size than the other, that is plainly wrong — it takes
+     * almost nothing to clear the thin side, so fair value sits closer to it.
+     */
+    function test_MicropriceLeansTowardTheThinSide() public {
+        book.set(25_442_000_000_000_000, 25_952_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(3589e10), // deep bid
+                uint256(0),
+                uint256(2_595_200), uint256(18e10)    // thin ask
+            )
+        );
+
+        vm.prank(owner);
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+
+        (uint256 mid, uint256 micro, uint256 bidSize, uint256 askSize) = oracle.marks(MON);
+        assertGt(bidSize, askSize * 100, "the book is genuinely lopsided");
+        assertGt(micro, mid, "a thin ask pulls fair value up toward it");
+        assertLt(micro, 2_595_200, "but never past the ask itself");
+
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, micro, "and that is the price the market settles on");
+    }
+
+    function test_MidRemainsAvailableAndIsTheDefault() public {
+        book.set(25_442_000_000_000_000, 25_952_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(3589e10),
+                uint256(0),
+                uint256(2_595_200), uint256(18e10)
+            )
+        );
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 2_569_700, "unset books mark at the midpoint");
+    }
+
+    /// @notice A weighted average of nothing is not a price; fall back to the midpoint.
+    function test_MicropriceFallsBackWhenASideHasNoSize() public {
+        book.set(25_442_000_000_000_000, 25_952_000_000_000_000);
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_544_200), uint256(0),
+                uint256(0),
+                uint256(2_595_200), uint256(0)
+            )
+        );
+        vm.prank(owner);
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 2_569_700);
+    }
+
+    /// @notice The spread guard must mean the same thing whichever mark is in use.
+    function test_SpreadGuardIsUnaffectedByTheMark() public {
+        book.set(20_000_000_000_000_000, 30_000_000_000_000_000); // 4000 bps
+        book.setBook(
+            abi.encode(
+                uint256(1),
+                uint256(2_000_000), uint256(3589e10),
+                uint256(0),
+                uint256(3_000_000), uint256(18e10)
+            )
+        );
+        vm.prank(owner);
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 0, "a 40% spread is refused under either mark");
+    }
+
+    function test_MarkIsOwnerOnly() public {
+        vm.expectRevert();
+        oracle.setMark(MON, KuruOracle.Mark.MICRO);
+    }
+
     function test_DepthDecodesBidsThenAsks() public {
         // block, (bid px,sz) x2, 0 separator, (ask px,sz) x2
         bytes memory packed = abi.encode(

@@ -27,6 +27,16 @@ contract KuruOracle is IXorrOracle, Owned {
     uint256 internal constant SCALE_DOWN = 1e10;
     uint256 internal constant BPS = 10_000;
 
+    /// @notice How a book is turned into a single price.
+    enum Mark {
+        /// @dev Midpoint of best bid and best ask. Simple, and biased when the two
+        ///      sides carry very different size.
+        MID,
+        /// @dev Size-weighted midpoint — the microprice. Leans toward the thinner side,
+        ///      because that is the side a trade would push through first.
+        MICRO
+    }
+
     struct Book {
         IKuruOrderBook market;
         /// @dev Widest bid/ask spread, in bps of the mid, that still yields a price.
@@ -38,6 +48,7 @@ contract KuruOracle is IXorrOracle, Owned {
         uint128 minDepth;
         /// @dev Ladder levels to inspect per side when measuring depth.
         uint8 depthLevels;
+        Mark mark;
         bool enabled;
     }
 
@@ -45,6 +56,7 @@ contract KuruOracle is IXorrOracle, Owned {
 
     event BookSet(bytes32 indexed marketId, address market, uint32 maxSpreadBps, bool enabled);
     event DepthFloorSet(bytes32 indexed marketId, uint32 bandBps, uint128 minDepth, uint8 levels);
+    event MarkSet(bytes32 indexed marketId, Mark mark);
 
     error NoBook();
     error BadSpread();
@@ -61,6 +73,21 @@ contract KuruOracle is IXorrOracle, Owned {
         b.maxSpreadBps = maxSpreadBps;
         b.enabled = enabled;
         emit BookSet(marketId, market, maxSpreadBps, enabled);
+    }
+
+    /**
+     * @notice Choose how this book is marked.
+     *
+     * A midpoint treats both sides as equally informative. When one side rests two
+     * orders of magnitude more size than the other — which the live MON book does —
+     * that is plainly wrong: it takes almost nothing to clear the thin side, so fair
+     * value sits much closer to it. The microprice weights each price by the size on
+     * the OPPOSITE side, which is the standard correction and, on the current book,
+     * moves the mark by nearly a hundred basis points.
+     */
+    function setMark(bytes32 marketId, Mark mark) external onlyOwner {
+        books[marketId].mark = mark;
+        emit MarkSet(marketId, mark);
     }
 
     /**
@@ -104,11 +131,13 @@ contract KuruOracle is IXorrOracle, Owned {
         if (bid == 0 || ask == 0) return (0, 0);
         if (ask < bid) return (0, 0); // crossed; the venue is mid-update
 
-        uint256 mid = (bid + ask) / 2;
+        uint256 mid = _mark(b, marketId, bid, ask);
         if (mid == 0) return (0, 0);
 
         if (b.maxSpreadBps != 0) {
-            uint256 spreadBps = ((ask - bid) * BPS) / mid;
+            // The spread is always measured against the plain midpoint, so the guard
+            // means the same thing whichever mark is in use.
+            uint256 spreadBps = ((ask - bid) * BPS * 2) / (bid + ask);
             // A book this thin is not a price anyone could trade at, and settling a
             // market on its midpoint would be settling on a number nobody quoted.
             if (spreadBps > b.maxSpreadBps) return (0, 0);
@@ -151,6 +180,49 @@ contract KuruOracle is IXorrOracle, Owned {
             if (askPx[i] == 0) break;
             if (askPx[i] - mid <= band) total += askSz[i];
         }
+    }
+
+    /**
+     * @dev The configured mark. MICRO falls back to the midpoint when either side has
+     *      no size to weight by — a weighted average of nothing is not a price.
+     */
+    function _mark(Book memory b, bytes32 marketId, uint256 bid, uint256 ask)
+        internal
+        view
+        returns (uint256)
+    {
+        if (b.mark == Mark.MID) return (bid + ask) / 2;
+
+        (uint256 bidSize, uint256 askSize) = _topSizes(marketId);
+        if (bidSize == 0 || askSize == 0) return (bid + ask) / 2;
+
+        // Each price weighted by the size resting on the other side.
+        return (bid * askSize + ask * bidSize) / (bidSize + askSize);
+    }
+
+    /// @dev Size resting at the best bid and the best ask.
+    function _topSizes(bytes32 marketId) internal view returns (uint256 bidSize, uint256 askSize) {
+        (, , uint256[] memory bidSz, , uint256[] memory askSz) = depth(marketId, 1);
+        bidSize = bidSz.length > 0 ? bidSz[0] : 0;
+        askSize = askSz.length > 0 ? askSz[0] : 0;
+    }
+
+    /// @notice Both marks side by side, so the difference is visible rather than assumed.
+    function marks(bytes32 marketId)
+        external
+        view
+        returns (uint256 mid8, uint256 micro8, uint256 bidSize, uint256 askSize)
+    {
+        Book memory b = books[marketId];
+        if (address(b.market) == address(0)) revert NoBook();
+        (uint256 bid, uint256 ask) = b.market.bestBidAsk();
+        if (bid == 0 || ask == 0) return (0, 0, 0, 0);
+
+        (bidSize, askSize) = _topSizes(marketId);
+        mid8 = ((bid + ask) / 2) / SCALE_DOWN;
+        micro8 = bidSize == 0 || askSize == 0
+            ? mid8
+            : ((bid * askSize + ask * bidSize) / (bidSize + askSize)) / SCALE_DOWN;
     }
 
     function hasMarket(bytes32 marketId) external view returns (bool) {

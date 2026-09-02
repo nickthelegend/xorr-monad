@@ -101,13 +101,39 @@ console.log(
 check(Number(b8) === Math.floor(Number(bid) / 1e10), "oracle's bid is the venue's bid");
 check(Number(a8) === Math.floor(Number(ask) / 1e10), "oracle's ask is the venue's ask");
 
+// The mark may be the plain midpoint or the size-weighted microprice, so ask the
+// contract which and check against that rather than assuming.
+const [mid8, micro8, topBid, topAsk] = await pub.readContract({
+  address: deployment.kuruOracle,
+  abi: KuruOracleAbi,
+  functionName: "marks",
+  args: [MON],
+});
 const [price] = await pub.readContract({
   address: deployment.kuruOracle,
   abi: KuruOracleAbi,
   functionName: "latest",
   args: [MON],
 });
-check(price === m8, "the price the market settles on is that midpoint", `${price}`);
+const usingMicro = price === micro8 && micro8 !== mid8;
+console.log(
+  `marks     mid ${(Number(mid8) / 1e8).toFixed(6)}  micro ${(Number(micro8) / 1e8).toFixed(6)}  ` +
+    `sizes ${(Number(topBid) / 1e10).toFixed(1)} bid / ${(Number(topAsk) / 1e10).toFixed(1)} ask\n`,
+);
+check(
+  price === mid8 || price === micro8,
+  `the price the market settles on is the configured mark (${usingMicro ? "microprice" : "midpoint"})`,
+  `${price}`,
+);
+
+/**
+ * A book this lopsided must not be marked at the midpoint. The microprice has to sit
+ * strictly between the two, and on the thin side of the middle.
+ */
+if (usingMicro) {
+  check(price > mid8 === topBid > topAsk, "the mark leans toward the thinner side");
+  check(price > Number(b8) && price < Number(a8), "and stays strictly inside the spread");
+}
 
 // ---- depth decodes into a real ladder
 const [blockNumber, bidPx, bidSz, askPx] = await pub.readContract({

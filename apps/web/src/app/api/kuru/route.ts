@@ -150,7 +150,7 @@ export async function GET() {
   const pub = createPublicClient({ chain, transport: http(RPC) });
 
   try {
-    const [top, depth, stats] = await Promise.all([
+    const [top, depth, marks, stats] = await Promise.all([
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
@@ -163,6 +163,12 @@ export async function GET() {
         functionName: "depth",
         args: [MON_ID, 8],
       }) as Promise<readonly [bigint, readonly bigint[], readonly bigint[], readonly bigint[], readonly bigint[]]>,
+      pub.readContract({
+        address: KURU_ORACLE,
+        abi: KuruOracleAbi,
+        functionName: "marks",
+        args: [MON_ID],
+      }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
       venueStats(KURU_BOOK),
     ]);
 
@@ -197,6 +203,13 @@ export async function GET() {
           spreadBps: Number(spreadBps),
           bids,
           asks,
+          // Both marks, so the bias in a plain midpoint is visible rather than assumed.
+          marks: {
+            mid: Number(marks[0]) / 1e8,
+            micro: Number(marks[1]) / 1e8,
+            topBidSize: Number(marks[2]) / SIZE_PRECISION,
+            topAskSize: Number(marks[3]) / SIZE_PRECISION,
+          },
         },
         ...assess(bid, ask, bids, asks, stats),
         // Aggregates the chain cannot produce. Never used for pricing.

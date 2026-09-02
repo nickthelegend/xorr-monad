@@ -151,6 +151,7 @@ Working down the ranking, these are live and checked against the running product
 | 3 | On-chain L2 depth decoder | `depth()` output byte-identical to `/api/kuru` |
 | 4 | Live order-book panel, plus a one-line strip on the deck | ladder, depth bars, mid row, block number |
 | 8 | "Priced by Kuru" provenance, answerable from the chain | `OracleRouter.sourceOf` returns the oracle and label |
+| 9 | Depth-weighted mid instead of the naive midpoint | live book rests 358.9 bid against 18.0 ask; the mark moves 90 bps and the panel shows why |
 | 10 | Book-health verdict | reads RESTING with the reason, and refuses to trade on it |
 | 17 | Depth floor — real size required behind the quote | rejects a tight quote on dust; live book rests 376 MON |
 | 25 | Top up by selling MON into Kuru's book | 12 MON → $0.305304, the book's touch fell by exactly 12 |

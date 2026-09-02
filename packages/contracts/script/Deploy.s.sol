@@ -89,6 +89,10 @@ contract Deploy is Script {
             // mid. A tight spread on two dust orders passes every price check and is
             // not a market anyone could settle against.
             kuru.setDepthFloor(MON, 100, 100e10, 8);
+            // Mark this book at the microprice. Its two sides rest wildly different
+            // size — hundreds of MON bid against tens offered — and a plain midpoint
+            // between them is a price neither side would trade at.
+            kuru.setMark(MON, KuruOracle.Mark.MICRO);
 
             OracleRouter router = new OracleRouter(deployer);
             router.setFallback(address(oracle), bytes8("keeper"));

@@ -19,6 +19,7 @@ interface Book {
     spreadBps: number;
     bids: Level[];
     asks: Level[];
+    marks?: { mid: number; micro: number; topBidSize: number; topAskSize: number };
   };
   health?: string;
   tradeable?: boolean;
@@ -137,6 +138,32 @@ export function OrderBook() {
 
         {book.reason ? (
           <p className="mt-2 text-[11px] leading-relaxed text-white/45">{book.reason}</p>
+        ) : null}
+
+        {/* Why the mark is not simply the midpoint. */}
+        {b.marks && Math.abs(b.marks.micro - b.marks.mid) > 1e-9 ? (
+          <div className="mt-3 rounded-xl bg-[#0d0d0d] p-3">
+            <div className="flex items-baseline justify-between">
+              <span className="label">Midpoint</span>
+              <span className="tnum text-[12px] text-white/50">{px(b.marks.mid)}</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="label">Microprice · used</span>
+              <span className="tnum text-[13px] font-semibold text-amber">
+                {px(b.marks.micro)}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+              {sz(b.marks.topBidSize)} rests on the bid against {sz(b.marks.topAskSize)} on
+              the ask, so a midpoint between them is a price neither side would trade at.
+              The mark is weighted toward the thinner side —{" "}
+              {(
+                (Math.abs(b.marks.micro - b.marks.mid) / b.marks.mid) *
+                10_000
+              ).toFixed(0)}{" "}
+              bps from the midpoint.
+            </p>
+          </div>
         ) : null}
       </div>
 

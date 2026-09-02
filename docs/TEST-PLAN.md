@@ -231,6 +231,11 @@ Binance prices. Browser verification was done against a **production build**
 | J-17 | Router silence | a source returning zero propagates zero, never a stale price |
 | J-18 | Fork test vs real market | fork tests against the deployed Kuru market pass (bid>0, ask>bid, spread inside guard, MON in a sane range) |
 | J-19 | End-to-end check | `pnpm check:kuru` passes every assertion including the refuse-and-restore cycle |
+| J-20 | Microprice leans right | on a lopsided book the mark moves toward the thinner side and stays strictly inside the spread |
+| J-21 | Microprice fallback | with no size on a side, the mark falls back to the midpoint rather than dividing by nothing |
+| J-22 | Mark is configurable | MID is the default; only the owner may change it |
+| J-23 | Spread guard unaffected | the guard measures against the plain midpoint under either mark |
+| J-24 | Both marks surfaced | `/api/kuru` and the panel show midpoint, microprice and the sizes behind them |
 
 ## K. Kuru order book — API and UI
 
@@ -325,7 +330,7 @@ Binance prices. Browser verification was done against a **production build**
 
 ## Result
 
-**226 items. 226 PASS. 0 FAIL. 0 untested.**
+**231 items. 231 PASS. 0 FAIL. 0 untested.**
 
 Verified against a fork of Monad mainnet with real Agora AUSD, the real Kuru MON-AUSD
 order book, real deployed XORR contracts and real signed transactions. Zero console
@@ -342,7 +347,7 @@ errors and zero failed network requests across every screen and endpoint.
 | G. Live console | 13 | PASS |
 | H. On-chain integration | 7 | PASS |
 | I. External integrations | 4 | PASS |
-| J. Kuru — contracts | 19 | PASS |
+| J. Kuru — contracts | 24 | PASS |
 | K. Kuru — API and UI | 11 | PASS |
 | L. Kuru swap | 9 | PASS |
 | M. Preferences, sound, motion | 9 | PASS |
