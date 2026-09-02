@@ -48,7 +48,7 @@ console.log(`measured on ${closes.length} real one-second closes\n`);
 
 for (const tier of [0, 2, 5]) {
   const r = m.rounds[tier];
-  const l = bandLimits(r.probTable, spot, r.sigma1e4, 400n, 12_000n, r.minProb1e6);
+  const l = bandLimits(r.probTable, SPOT, r.sigma1e4, 400n, 12_000n, r.minProb1e6);
   console.log(`--- ${r.seconds}s round (tier ${tier}) ---`);
   console.log("halfBps   model%   real%    mult     edge");
 

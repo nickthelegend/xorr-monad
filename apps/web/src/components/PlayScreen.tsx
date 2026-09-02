@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   MARKETS,
@@ -35,7 +35,7 @@ const COIN_TONE: Record<string, string> = {
 
 export function PlayScreen() {
   const router = useRouter();
-  const { prefs, set: setPref } = usePrefs();
+  const { prefs, set: setPref, loaded: prefsLoaded } = usePrefs();
   const osReduced = usePrefersReducedMotion();
   const reducedMotion = prefs.reducedMotion || osReduced;
 
@@ -51,13 +51,41 @@ export function PlayScreen() {
   const [live, setLive] = useState(false);
   const [flash, setFlash] = useState<null | { kind: "won" | "lost"; text: string }>(null);
 
-  // Open on the round the player last chose, once.
+  /**
+   * Open on the market and round the player last chose.
+   *
+   * This waits for `prefsLoaded`: stored preferences arrive a tick after mount, so
+   * applying them on first render would only ever re-apply the defaults and then stop.
+   */
   const [appliedDefaults, setAppliedDefaults] = useState(false);
   useEffect(() => {
-    if (appliedDefaults) return;
+    if (appliedDefaults || !prefsLoaded) return;
+    if (prefs.market !== state.market.key) setMarketKey(prefs.market);
     if (prefs.tier !== state.tier) setTier(prefs.tier);
     setAppliedDefaults(true);
-  }, [appliedDefaults, prefs.tier, state.tier, setTier]);
+  }, [
+    appliedDefaults,
+    prefsLoaded,
+    prefs.market,
+    prefs.tier,
+    state.market.key,
+    state.tier,
+    setMarketKey,
+    setTier,
+  ]);
+
+  /**
+   * Click once when sound is switched on.
+   *
+   * Doing this inside the toggle handler is silent: the sound engine is built from the
+   * value at render time, so the click fires against the state that was there a moment
+   * ago. Waiting for the render that has it on is what makes the confirmation audible.
+   */
+  const wasSilent = useRef(true);
+  useEffect(() => {
+    if (prefs.sound && wasSilent.current) play("key");
+    wasSilent.current = !prefs.sound;
+  }, [prefs.sound, play]);
 
   const stake = STAKE_STEPS[stakeStep - 1];
   const payout = payoutFor(stake, band.multiplierBps);
@@ -143,11 +171,7 @@ export function PlayScreen() {
         maxStake={STAKE_STEPS.length}
         onStakeStep={setStakeStep}
         soundOn={prefs.sound}
-        onToggleSound={() => {
-          const next = !prefs.sound;
-          setPref("sound", next);
-          if (next) play("key");
-        }}
+        onToggleSound={() => setPref("sound", !prefs.sound)}
         running={state.running}
         onToggleRunning={() => setRunning(!state.running)}
       >

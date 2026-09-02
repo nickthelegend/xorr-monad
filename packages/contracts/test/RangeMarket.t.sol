@@ -288,6 +288,22 @@ contract RangeMarketTest is Base {
         }
     }
 
+    /**
+     * @notice No round may sell a band narrower than the first measured knot.
+     *
+     * The table is sampled every 0.25 sigma. Below that the contract interpolates
+     * between "the price did not move at all" and the first real observation, and that
+     * line is not a measurement — measured against real tape the tightest band a
+     * three-second round would otherwise allow modelled a 33% chance where the true
+     * rate was 59%, and paid 2.9x on it.
+     */
+    function test_NoRoundSellsInsideTheFirstMeasuredKnot() public view {
+        for (uint8 tier = 0; tier < 6; tier++) {
+            (, uint256 sig1e4,, uint256 minH) = range.bandLimits(BTC, tier);
+            assertGe(minH, sig1e4 / 4, "band opened inside the first knot");
+        }
+    }
+
     /// @notice The exact endpoints, on every round. A painter that clamps to a value
     ///         the market rejects is a UI that lies about what it is offering.
     function test_EveryRoundsBandLimitsAreFireableAtBothEnds() public {

@@ -208,8 +208,15 @@ export function SwapMon({ onDone }: { onDone?: () => void }) {
               />
               {fill.partial ? (
                 <p className="mt-2 text-[11px] leading-relaxed text-amber">
-                  The book only has {fill.filled.toFixed(2)} MON of bids. A larger size
-                  would fill partially.
+                  The book only has {fill.filled.toFixed(2)} MON of bids, so this size
+                  cannot fill. Sending it anyway would hand the router more MON than
+                  there are orders to meet.{" "}
+                  <button
+                    onClick={() => setAmount(String(Math.floor(fill.filled * 100) / 100))}
+                    className="underline decoration-amber/50 underline-offset-2"
+                  >
+                    Use {(Math.floor(fill.filled * 100) / 100).toFixed(2)} instead
+                  </button>
                 </p>
               ) : null}
               {!enough ? (
@@ -225,7 +232,9 @@ export function SwapMon({ onDone }: { onDone?: () => void }) {
 
           <button
             onClick={() => void swap()}
-            disabled={busy || !fill || fill.filled <= 0 || !enough}
+            // A partial fill is refused rather than attempted: the router would be sent
+            // the full amount with only part of it fillable.
+            disabled={busy || !fill || fill.filled <= 0 || fill.partial || !enough}
             className="mt-3 w-full rounded-xl bg-amber-2 py-3 text-[13px] font-bold text-black disabled:opacity-45"
           >
             {busy ? "SWAPPING…" : account ? "SELL MON FOR AUSD" : "CONNECT AND SWAP"}

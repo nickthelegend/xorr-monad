@@ -53,9 +53,17 @@ const EVENT = "xorr:prefs";
 
 export function usePrefs() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  /**
+   * Stored values arrive one tick after mount, because reading them during render
+   * would not match what the server rendered. Anything that acts on a preference —
+   * which market the desk opens on, which round — has to wait for this, or it will act
+   * on the defaults and never look again.
+   */
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     setPrefs(read());
+    setLoaded(true);
     const sync = () => setPrefs(read());
     window.addEventListener(EVENT, sync);
     window.addEventListener("storage", sync);
@@ -88,7 +96,7 @@ export function usePrefs() {
     window.dispatchEvent(new Event(EVENT));
   }, []);
 
-  return { prefs, set, reset };
+  return { prefs, set, reset, loaded };
 }
 
 /**

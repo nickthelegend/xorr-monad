@@ -194,11 +194,18 @@ export function bandLimits(
   minProb1e6: bigint,
 ): BandLimits {
   const pAtFloor = (PROB_ONE * (BPS - houseEdgeBps)) / minMultiplierBps;
-  return {
-    sig1e4,
-    minHalfWidth1e4: solveHalfWidth(t, spot, sig1e4, minProb1e6, true),
-    maxHalfWidth1e4: solveHalfWidth(t, spot, sig1e4, pAtFloor, false),
-  };
+  let min = solveHalfWidth(t, spot, sig1e4, minProb1e6, true);
+  let max = solveHalfWidth(t, spot, sig1e4, pAtFloor, false);
+
+  // Never sell inside the first measured knot. The table is sampled every 0.25 sigma,
+  // so below that this is interpolating between "the price did not move at all" and the
+  // first real observation — a straight line that is not a measurement, and is wrong in
+  // the player's favour. Mirrors RangeMarket.bandLimits.
+  const firstKnot = sig1e4 / 4n; // z = 0.25
+  if (min < firstKnot) min = firstKnot;
+  if (max < min) max = min;
+
+  return { sig1e4, minHalfWidth1e4: min, maxHalfWidth1e4: max };
 }
 
 /** Payout for a stake at a multiplier, in asset units. Mirrors RangeMarket._open. */

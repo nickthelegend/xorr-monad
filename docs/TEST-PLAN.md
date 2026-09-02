@@ -208,6 +208,88 @@ AUSD, real deployed contracts, real signed transactions, and a keeper publishing
 Binance prices. Browser verification was done against a **production build**
 (`next build && next start`), not the dev server.
 
+## J. Kuru order book — contracts
+
+| # | Item | Correct means |
+|---|---|---|
+| J-1 | Oracle reads the venue | `KuruOracle.quoteTop` bid/ask equal `bestBidAsk()` on the deployed Kuru market, scaled 18dp → 8dp |
+| J-2 | Mid is the settlement price | `latest()` price equals that midpoint exactly; `updatedAt` is the current block timestamp |
+| J-3 | One-sided book | bid or ask zero → `latest` returns (0,0); `hasMarket` false |
+| J-4 | Crossed book | ask < bid → returns (0,0) |
+| J-5 | Spread guard | a guard below the book's real spread → returns (0,0); restoring it returns the price again |
+| J-6 | Sub-resolution | a mid below 1e10 wei returns (0,0), not a rounded zero |
+| J-7 | Disabled book | `enabled=false` → (0,0) and `hasMarket` false |
+| J-8 | Unknown market | (0,0), no revert |
+| J-9 | Owner-only config | non-owner `setBook` / `setDepthFloor` revert |
+| J-10 | Depth decodes | `depth()` returns block, bids descending, asks ascending, top ask > top bid, size behind the touch |
+| J-11 | Depth floor blocks dust | a tight quote on dust returns no price once a floor is set |
+| J-12 | Depth floor passes real size | real size clears it, and `depthNearMid` ≥ floor |
+| J-13 | Far depth excluded | a wall far from the mid does not count toward the floor |
+| J-14 | Router dispatch | MON resolves to KuruOracle, BTC/ETH to the keeper feed, same call |
+| J-15 | Router provenance | `sourceOf(MON)` returns the Kuru oracle address and label `kuru` |
+| J-16 | Router repoint | a market can be moved to another source without redeploying RangeMarket |
+| J-17 | Router silence | a source returning zero propagates zero, never a stale price |
+| J-18 | Fork test vs real market | fork tests against the deployed Kuru market pass (bid>0, ask>bid, spread inside guard, MON in a sane range) |
+| J-19 | End-to-end check | `pnpm check:kuru` passes every assertion including the refuse-and-restore cycle |
+
+## K. Kuru order book — API and UI
+
+| # | Item | Correct means |
+|---|---|---|
+| K-1 | `/api/kuru` shape | 200 with `onchain.block/bid/ask/mid/spreadBps`, 8 bid and 8 ask levels |
+| K-2 | Depth is on-chain | the ladder equals `KuruOracle.depth()` at that block, not a REST snapshot |
+| K-3 | Venue stats labelled | `venue` carries volume/trades/traders from Kuru's API and is never used for pricing |
+| K-4 | Health verdict | current book returns `resting` with the reason naming the lack of recent flow |
+| K-5 | Unconfigured | with no Kuru oracle deployed, returns `configured:false` and a reason, not an error |
+| K-6 | Book panel renders | ladder with asks above, mid row, bids below; depth bars scaled to the largest size |
+| K-7 | Panel health chip | shows the verdict and the reason text |
+| K-8 | Panel provenance | prints the Kuru market and the XORR oracle addresses |
+| K-9 | Deck strip | on MON, the deck shows `KURU <health> bid / ask <n>bps` and matches `/api/kuru` |
+| K-10 | Strip absent off-MON | no strip on BTC or ETH |
+| K-11 | Panel refresh | polls without leaking intervals or throwing on unmount |
+
+## L. Kuru swap (Add funds)
+
+| # | Item | Correct means |
+|---|---|---|
+| L-1 | Quote at the touch | a size inside the top bid quotes the touch price, 0 bps impact, 1 level |
+| L-2 | Quote walks the book | a size past the touch quotes a worse average, >0 bps impact, >1 level |
+| L-3 | Partial fill | a size larger than all bids reports partial and names the fillable amount |
+| L-4 | Empty/zero input | quotes nothing rather than guessing; button disabled |
+| L-5 | Insufficient balance | firing with more MON than held is blocked with the real balance shown |
+| L-6 | Real swap executes | a real `anyToAnySwap` tx mines; AUSD rises by exactly the quoted proceeds; MON falls by the input |
+| L-7 | Book state moves | the touch size on Kuru decreases by the amount sold |
+| L-8 | Slippage floor | `minAmountOut` is 1% under the quote |
+| L-9 | Unit tests | `quoteSell` / `quoteBuy` / `depthWithin` — 7 tests pass |
+
+## M. Preferences, sound and motion
+
+| # | Item | Correct means |
+|---|---|---|
+| M-1 | Settings persist | every toggle survives a reload (localStorage) |
+| M-2 | Theme applies | selecting a colourway repaints `--color-shell` and the `.shell` computed gradient |
+| M-3 | Theme covers the cabinet | rail keys, stake rail, deck pills and legend ink all follow the theme |
+| M-4 | Screen never themed | the black screen, amber readout and signal colours are identical across all four themes |
+| M-5 | Reduced motion | stills the 3D hero and the band burn; OS `prefers-reduced-motion` is honoured as a floor and disables the toggle |
+| M-6 | Sound toggle | drives the synthesised engine; off means silent; no AudioContext is created before a gesture |
+| M-7 | Desk defaults | market and round chosen in Settings are what the desk opens on |
+| M-8 | Restore defaults | returns every preference to its default and repaints |
+| M-9 | Storage refused | a browser blocking localStorage still renders with defaults and no thrown error |
+
+## N. Account and Achievements
+
+| # | Item | Correct means |
+|---|---|---|
+| N-1 | No wallet | states no wallet is present and that the demo desk needs none |
+| N-2 | Connected | shows the real address, real AUSD balance and real native balance from the chain |
+| N-3 | Zero gas warning | an address with no native balance is warned that firing will fail |
+| N-4 | Network | shows the active chain name/id and the live head block |
+| N-5 | Deployment printed | range market, vault, AUSD and oracle addresses shown and copyable |
+| N-6 | Achievements empty | with no tickets, nothing is earned and progress reads 0 |
+| N-7 | Achievements earned | firing and settling awards exactly the badges whose predicates hold |
+| N-8 | Achievement progress | partial progress bars reflect real counts |
+| N-9 | No granted badges | every badge is derived from settled tickets; none can be earned without play |
+
 ## Summary
 
 | Section | Items | Pass | Untested |

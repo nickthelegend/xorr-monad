@@ -266,6 +266,19 @@ contract RangeMarket is Owned, Pausable, ReentrancyGuard {
         uint256 pAtFloor = (1e6 * (BPS - houseEdgeBps)) / minMultiplierBps;
         minHalfWidth1e4 = _solveHalfWidth(t, spot, sig1e4, rc.minProb1e6, true);
         maxHalfWidth1e4 = _solveHalfWidth(t, spot, sig1e4, pAtFloor, false);
+
+        // Never sell inside the first measured knot.
+        //
+        // The table is sampled every 0.25 sigma, so below that the contract is
+        // interpolating between "the price did not move at all" and the first real
+        // observation. That straight line is not a measurement, and it is wrong in the
+        // player's favour: measured against real tape, the tightest band a 3s round
+        // would otherwise allow modelled a 33% chance where the true rate was 59%, and
+        // paid 2.9x on it. Anything narrower than one knot is priced off a guess, so
+        // it is not offered.
+        uint256 firstKnot = sig1e4 / 4; // z = 0.25
+        if (minHalfWidth1e4 < firstKnot) minHalfWidth1e4 = firstKnot;
+        if (maxHalfWidth1e4 < minHalfWidth1e4) maxHalfWidth1e4 = minHalfWidth1e4;
     }
 
     /// @dev Widest band whose win probability is still <= target (`lowest` false), or

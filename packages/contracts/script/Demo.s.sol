@@ -27,10 +27,11 @@ contract Demo is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
 
-        // On a live network Chainlink/Pyth keep printing on their own. Against the mock
-        // we play the feed ourselves so the 30s staleness guard is exercised for real
-        // rather than switched off for the demo.
-        _freshenIfMock(pk);
+        // Chainlink, Pyth and Kuru all keep printing on their own. A keeper feed only
+        // prints when a keeper does, so if this script is running standalone against
+        // one it publishes a price itself — the 30s staleness guard stays armed either
+        // way rather than being switched off for the demo.
+        _publishIfKeeperFeed(pk);
 
         Ctx memory c = _plan();
 
@@ -58,7 +59,7 @@ contract Demo is Script {
 
     /// @dev The keeper normally publishes prices continuously. This script publishes
     ///      one so it can run standalone; SPOT must be a real observed price.
-    function _freshenIfMock(uint256 pk) internal {
+    function _publishIfKeeperFeed(uint256 pk) internal {
         string memory json =
             vm.readFile(string.concat("./deployments/", vm.toString(block.chainid), ".json"));
         if (keccak256(bytes(vm.parseJsonString(json, ".oracleKind"))) != keccak256("keeper")) return;
