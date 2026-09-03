@@ -26,7 +26,8 @@
     "check:win": "node tools/checks/live-win.mjs",
     "check:room": "node tools/checks/room-round.mjs",
     "typecheck": "pnpm --filter @xorr/sdk exec tsc --noEmit && pnpm --filter @xorr/web exec tsc --noEmit",
-    "check:kuru": "node tools/checks/kuru-book.mjs"
+    "check:kuru": "node tools/checks/kuru-book.mjs",
+    "demo": "tools/demo.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

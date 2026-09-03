@@ -16,3 +16,6 @@ packages/contracts/deployments/
 
 # scratch
 *.log
+
+# demo and keeper logs
+.xorr-logs/

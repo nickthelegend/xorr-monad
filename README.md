@@ -170,7 +170,7 @@ at 300ms, without spending anything.
 ## Tests
 
 ```
-pnpm test           # 90 Solidity tests, 33 TypeScript tests
+pnpm test           # 104 Solidity tests, 33 TypeScript tests
 pnpm parity         # 1,728 quotes diffed between Solidity and TypeScript
 ```
 
@@ -185,5 +185,6 @@ Beyond unit tests, `tools/checks/` holds the ones that check claims rather than 
 | `live-win.mjs` | Is a winner paid exactly the payout the ticket promised? |
 | `room-round.mjs` | Does a room's pot close out to exactly zero? |
 | `kuru-book.mjs` | Does the oracle read the deployed Kuru market, and refuse a thin one? |
+| `ui-quote.mjs` | Does the number the console printed match the kernel, recomputed from what was on screen? |
 
 `docs/TEST-PLAN.md` is the full plan every component was verified against.

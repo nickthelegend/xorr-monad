@@ -6,6 +6,18 @@ honest audit of every gap between what exists and what is claimed.
 
 Status tags: `DONE` · `IN PROGRESS` · `NOT STARTED` · `BLOCKED`
 
+> **Execution halted: the host ran out of disk.** Work stopped partway through Phases 5
+> to 7 because `/` filled and no command can run — the harness cannot even create a
+> process's output file. Nothing is wrong with the repo; the uncommitted work in the
+> tree is sound and typechecks, it just cannot be executed or committed until space is
+> freed. Likely culprits are Foundry's forked-mainnet RPC cache (`~/.foundry/cache/rpc`,
+> which grows fast when anvil forks Monad at 300ms for hours), `packages/contracts/out`
+> and `broadcast`, `apps/web/.next`, and `/tmp/xorr`. There is also an `anvil` process
+> still running from the interrupted `tools/demo.sh`.
+>
+> To resume: free space, `pkill -f anvil`, then `pnpm demo --fresh`, and continue from
+> the first task below still marked `IN PROGRESS` or `NOT STARTED`.
+
 ---
 
 ## 0. Orientation
@@ -189,8 +201,8 @@ at this machine to see it. A judge who cannot run the project scores what they c
 | 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | NOT STARTED |
 | 5.5 | Record a 3-minute demo video following `docs/DEMO.md`, and fix that script's stale numbers first (see 7.2). | NOT STARTED |
 | 5.6 | Write a **judge-facing one-pager** (idea #100): each claim, and the exact command that proves it. `pnpm check:kuru` for the book, `pnpm parity` for the two implementations, `pnpm check:edge` for solvency, `pnpm check:chain` for deployed-vs-SDK agreement. | NOT STARTED |
-| 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | NOT STARTED |
-| 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | NOT STARTED |
+| 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | IN PROGRESS — `tools/demo.sh` written and wired to `pnpm demo`; it got as far as forking, deploying and funding before the host ran out of disk. Not yet verified end to end. |
+| 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | IN PROGRESS — written and typechecks; reports chain / keeper-print-age / Kuru top-of-book, each from a contract call. Not yet exercised against a running stack. |
 | 5.9 | Favicon, web manifest, and an OG preview image. `layout.tsx` has `openGraph` title/description but **no image and no icons**. | NOT STARTED |
 | 5.10 | README diagram of the settlement path: wallet → RangeMarket → OracleRouter → KuruOracle → Kuru book (idea #96). | NOT STARTED |
 
@@ -204,7 +216,7 @@ three times already. The structural fix landed (`527611c`); the operational half
 | 6.1 | Quote the **envelope** of recent win rates (65th percentile across sliding windows) rather than a point fit — the fix for the recurring player-positive 3s round | DONE |
 | 6.2 | `check:edge` sweeps four disjoint tape windows and fails if any round is player-positive on any of them | DONE |
 | 6.3 | `check:edge` fails when a round quotes nothing (previously `NaN > 1` was false, so an empty book passed) | DONE |
-| 6.4 | **Keeper drives `remark` on a cadence** so sigma tracks the regime instead of hedging against it. `pnpm remark` exists and works; nothing calls it automatically. This is the stated "honest next step" in `docs/HACKATHON.md` and it is not built. | NOT STARTED |
+| 6.4 | **Keeper drives `remark` on a cadence** so sigma tracks the regime instead of hedging against it. `pnpm remark` exists and works; nothing calls it automatically. This is the stated "honest next step" in `docs/HACKATHON.md` and it is not built. | IN PROGRESS — the prerequisite is done: the sigma estimator now lives in one place (`packages/sdk/src/remark.ts`) so the keeper and the calibration cannot drift apart, with 5 tests pinning its properties. `calibrate-all.ts` imports it. The keeper's cadence itself is not yet wired. |
 | 6.5 | Structured logging in the keeper (idea #82) — currently plain `console.log`. Needed to tell "the keeper is fine" from "the keeper is wedged" during a demo. | NOT STARTED |
 | 6.6 | Prove keeper restart-safety with a test rather than a comment (idea #83). It re-bases past the deviation guard after a gap; that path has no test. | NOT STARTED |
 | 6.7 | Transaction queue so two fires cannot collide on a nonce (idea #76). No nonce management exists in `useLiveDesk.ts`. | NOT STARTED |
@@ -219,12 +231,12 @@ is "check what we say", so a stale number costs more here than in an ordinary re
 
 | # | Task | Status |
 |---|---|---|
-| 7.1 | `README.md` says **"90 Solidity tests, 33 TypeScript tests"**. Actual: **104 and 33**. | NOT STARTED |
-| 7.2 | `docs/HACKATHON.md` closes with **"71 Solidity tests, 26 TypeScript tests"**. Actual: **104 and 33**. | NOT STARTED |
+| 7.1 | `README.md` says **"90 Solidity tests, 33 TypeScript tests"**. Actual: **104 and 33**. | DONE |
+| 7.2 | `docs/HACKATHON.md` closes with **"71 Solidity tests, 26 TypeScript tests"**. Actual: **104 and 33**. | DONE |
 | 7.3 | `docs/DEMO.md` says the real spread is **"about 6% on short rounds"**. Actual, post-envelope: **about 3% to 42% across four windows**, driven by regime rather than round length. The same passage is already corrected in the app, README and HACKATHON.md — DEMO.md was missed. | NOT STARTED |
-| 7.4 | `.env.example` documents `ORACLE_KIND` as **`mock \| chainlink \| pyth`**. `Deploy.s.sol` accepts **`keeper \| chainlink \| pyth`** and has no mock path. The file advertises a mock that cannot be deployed, directly contradicting the "no mocks" claim. | NOT STARTED |
+| 7.4 | `.env.example` documents `ORACLE_KIND` as **`mock \| chainlink \| pyth`**. `Deploy.s.sol` accepts **`keeper \| chainlink \| pyth`** and has no mock path. The file advertises a mock that cannot be deployed, directly contradicting the "no mocks" claim. | DONE — and the file was worse than stale: it omitted `KURU_MON_AUSD` (the sponsor-track variable) and six others the code reads, while listing three nothing reads. Rewritten against a grep of `process.env.*` and the deploy script's `envOr` calls; the stale `deployments/31337.json` recording `"oracleKind": "mock"` is deleted. |
 | 7.5 | `docs/DEMO.md`'s setup block omits `KURU_MON_AUSD=…` before `Deploy.s.sol`. Without it the Kuru oracle is never configured and the MON market — the sponsor-track market — is silently absent. | NOT STARTED |
-| 7.6 | README's check table omits `tools/checks/ui-quote.mjs`, which exists. | NOT STARTED |
+| 7.6 | README's check table omits `tools/checks/ui-quote.mjs`, which exists. | DONE |
 | 7.7 | Security notes: what is trusted, what is not (idea #98). Guards are documented per-contract; there is no single page a judge can read. | NOT STARTED |
 | 7.8 | `docs/TEST-PLAN.md` summary now covers all 18 sections and this run's re-verification | DONE |
 
@@ -282,6 +294,18 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 ## 3. Gap audit
 
 Read against the codebase, not the README. Every gap is tied to the task it blocks.
+
+### Found while executing this plan — not in the original audit
+
+Three defects that only surfaced by running the thing rather than reading it. All three
+were the same shape: a failure that produced a plausible-looking result instead of an
+error.
+
+| Defect | Why it mattered | Status |
+|---|---|---|
+| **An uncertified round shipped silently.** When the walk-forward gate found no probability floor that kept the vault ahead, `chosen` stayed at its initial `1` — a 100% floor, a 1.0x maximum multiplier and an empty band window. A round nobody can buy, inside a table that otherwise looks fine. It fired on live tape during this run: BTC's 15-minute round emitted `minProb1e6: 1000000`. | The tables are the product. Shipping one with a dead round and no error is the worst available outcome. | FIXED — the gate now throws, naming the round, the floor range it swept and how many folds it had. |
+| **The longest round was judged on four folds.** `RECENT` capped the tape at 60,000 seconds while 160,000 were available, and a 15-minute round needs 25,200 seconds per fold — about twenty independent rounds to decide solvency on. That is what made the round above fail to certify. | Absence of evidence was being read as evidence against, and the round was killed for it. | FIXED — folds now run over the whole tape (each still fitting its own sigma and table on its own training slice, so nothing leaks forward). Every round certifies; tier 5's ceiling went back to 7.68x from 1.0x. |
+| **A deploy without `AUSD` set silently used the test token.** `tools/demo.sh` passed `KURU_MON_AUSD` but not `AUSD`, so `Deploy.s.sol` fell back to deploying `TestAUSD`, while `setup-local.sh` had the real Agora address hard-coded. The two disagreed and the vault rejected a deposit it had just been approved for, surfacing as a bare `TransferFailed`. | The headline claim is that the stablecoin is real. This path quietly made it not. | FIXED — `demo.sh` passes the real address and aborts if the deployment came back with a different one; `setup-local.sh` now reads the token from the deployment instead of assuming it, and refuses to fund anything that is not real AUSD. |
 
 ### Blocking a win
 

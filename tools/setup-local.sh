@@ -24,12 +24,22 @@ KEEPER_PK=0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
 KEEPER=0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 OWNER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 
-# Real Agora AUSD on Monad mainnet, and a real holder to source it from on the fork.
-AUSD=0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a
+# A real holder to source AUSD from on the fork.
 WHALE=0x2A68ba1833cDf93fa9Da1EEbd7F46242aD8E90c5
 
 jqf() { python3 -c "import json,sys;print(json.load(open('$DEPLOYMENT'))['$1'])"; }
 ORACLE=$(jqf oracle); VAULT=$(jqf vault); RANGE=$(jqf rangeMarket); ROOM=$(jqf roomMarket)
+
+# The token the vault actually holds, read from the deployment rather than assumed.
+# Assuming it meant that a deploy which fell back to the test token still funded the
+# real one, and the vault then rejected a deposit it had just been approved for.
+AUSD=$(jqf ausd)
+REAL_AUSD=0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a
+if [ "$(echo "$AUSD" | tr 'A-Z' 'a-z')" != "$(echo "$REAL_AUSD" | tr 'A-Z' 'a-z')" ]; then
+  echo "   This deployment holds $AUSD, not real Agora AUSD." >&2
+  echo "   Re-deploy with AUSD=$REAL_AUSD set." >&2
+  exit 1
+fi
 # The keeper publishes to the feed, not to the router that dispatches to it.
 FEED=$(python3 -c "import json;d=json.load(open('$DEPLOYMENT'));print(d.get('feedOracle') or d['oracle'])")
 DEPLOY_BLOCK=$(jqf deployBlock)
@@ -105,12 +115,13 @@ NEXT_PUBLIC_DEPLOY_BLOCK=$DEPLOY_BLOCK
 ENV
 
 echo "→ restarting the keeper on its own account"
+mkdir -p "$ROOT/.xorr-logs"
 pkill -f "tools/keeper.mjs" 2>/dev/null || true
 sleep 1
-( cd "$ROOT" && PRIVATE_KEY="$KEEPER_PK" nohup node tools/keeper.mjs > /tmp/keeper.log 2>&1 & )
+( cd "$ROOT" && PRIVATE_KEY="$KEEPER_PK" nohup node tools/keeper.mjs > "$ROOT/.xorr-logs/keeper.log" 2>&1 & )
 sleep 8
 
 echo
 echo "vault     $VAULT  $(cast call --rpc-url "$RPC" "$VAULT" 'totalAssets()(uint256)') AUSD units"
 echo "player    $PLAYER  $(cast call --rpc-url "$RPC" "$AUSD" 'balanceOf(address)(uint256)' "$PLAYER") AUSD units"
-echo "keeper    $(grep -c published /tmp/keeper.log || echo 0) price publications so far"
+echo "keeper    $(grep -c published "$ROOT/.xorr-logs/keeper.log" || echo 0) price publications so far"

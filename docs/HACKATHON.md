@@ -128,5 +128,5 @@ apps/web             Next.js console + /api/price, /api/leaderboard, /api/rpc
 tools                Keeper, model generator, verification checks
 ```
 
-71 Solidity tests, 26 TypeScript tests, 1,728 cross-implementation quotes.
+104 Solidity tests, 33 TypeScript tests, 1,728 cross-implementation quotes.
 `docs/TEST-PLAN.md` is the plan every component was verified against.

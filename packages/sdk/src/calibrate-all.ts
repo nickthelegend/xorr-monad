@@ -13,6 +13,7 @@
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { ROUND_BLOCKS, secondCloses, sigmaOver, empiricalProb, tierSeconds } from "./termstructure.ts";
+import { HAIRCUT, fitSigma, remarkSigmas1e4 } from "./remark.ts";
 
 interface MarketOut {
   key: string;
@@ -239,69 +240,10 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
    * multiplier — so shading down buys a one-sided guarantee. The price is a wider
    * spread than the 4% fee, which is measured and disclosed rather than hidden.
    */
-  const HAIRCUT = 0.95;
-
-  /**
-   * Extra shading on the short rounds.
-   *
-   * The multiplier is (1 - fee) / p, so a fixed error in p costs more expected value
-   * the smaller p is — and the shortest round sells the highest modelled chances. A
-   * three-point miss on a 70% band is worth several percent of the stake there and
-   * almost nothing at fifteen minutes. Measured against tape the fit had not seen, the
-   * three-second round was the only one that came out player-positive under a single
-   * global haircut, so it gets a deeper one.
-   *
-   * These are shaded down, which is the safe direction: a smaller model sigma raises
-   * the modelled chance and lowers the multiplier.
-   *
-   * The numbers are empirical, and deliberately so. Three separate analytic gates were
-   * tried first — bounding the book average, bounding the tail, bounding the default
-   * band — and each certified rounds that tools/checks/paper-calibration.mjs then
-   * failed, because none of them measured what that check measures. These were tuned
-   * against it directly until every round cleared with margin. The shortest round costs
-   * nothing to protect: its multiplier ceiling is bound by the probability floor rather
-   * than by sigma, so shading it further buys margin for free.
-   */
-  const ROUND_SAFETY = [0.60, 0.90, 0.95, 1.0, 1.0, 1.0];
-
-  /**
-   * Price off the CALMEST volatility the market has shown recently, not the latest.
-   *
-   * The vault is safe exactly when the modelled win chance is at least the real one.
-   * A band's real win chance is highest when the market is quietest, so the bound that
-   * actually holds comes from the minimum realised sigma across recent windows — not
-   * from shading the latest reading by a fixed factor, which errs whichever way the
-   * regime happens to move next.
-   *
-   * Exposure is then limited to the market becoming quieter than anything it has been
-   * in the sample window, which is the residual risk the keeper manages by re-marking.
-   */
-  const quietSigma = (window: number[], seconds: number, sub: number) => {
-    const stride = Math.max(1, Math.floor(sub / 4));
-    const observed: number[] = [];
-    for (let start = 0; start + sub <= window.length; start += stride) {
-      const s = sigmaOver(window.slice(start, start + sub), seconds);
-      if (s > 0) observed.push(s);
-    }
-    if (observed.length === 0) return sigmaOver(window, seconds) * HAIRCUT;
-    observed.sort((a, b) => a - b);
-    // The 30th percentile rather than the outright minimum. The minimum is a single
-    // unusually still ten minutes and pricing everything off it charges a spread
-    // nobody would pay; a low percentile keeps the one-sided guarantee without
-    // handing the whole surplus to the house.
-    const idx = Math.min(observed.length - 1, Math.floor(0.3 * observed.length));
-    return observed[idx] * HAIRCUT;
-  };
-
-  const fitSigma = (window: number[], seconds: number) =>
-    quietSigma(window, seconds, Math.max(600, seconds * 10));
-
   // Shape from a large recent window so the tail estimates have samples behind them;
   // scale from the trailing window so it tracks the current regime.
   const shapeWindow = recent;
-  const sigmas = ROUND_BLOCKS.map(
-    (b, i) => fitSigma(recent, tierSeconds(b)) * (ROUND_SAFETY[i] ?? 1),
-  );
+  const sigmas1e4 = remarkSigmas1e4(recent);
 
   /**
    * Hold out the most recent stretch and never fit on it.
@@ -346,10 +288,25 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
     const train = Math.max(TRAIN_SECONDS, secs * 20);
     const test = Math.max(REMARK_SECONDS, secs * 8);
 
+    /**
+     * Fold the WHOLE tape, not just the window sigma is fitted on.
+     *
+     * Fitting off recent tape is right — a regime that has already passed prices the
+     * next round wrong. Judging solvency off the same short window is not: a fifteen
+     * minute round needs train + test = 25,200 seconds per fold, so a 60,000-second
+     * window yields four of them, and four folds of a fifteen-minute horizon is about
+     * twenty independent rounds. That is not a sample, it is a rumour, and a round
+     * that fails to certify on it fails for want of evidence rather than because the
+     * evidence is bad.
+     *
+     * Each fold still fits its own sigma and its own table on its own training slice,
+     * so nothing here leaks the future into the fit. It only gives the gate more folds
+     * to judge on.
+     */
     const runs: { test: number[]; sigma: number; table: number[] }[] = [];
-    for (let start = 0; start + train + test <= recent.length; start += test) {
-      const trainWindow = recent.slice(start, start + train);
-      const testWindow = recent.slice(start + train, start + train + test);
+    for (let start = 0; start + train + test <= closes.length; start += test) {
+      const trainWindow = closes.slice(start, start + train);
+      const testWindow = closes.slice(start + train, start + train + test);
       const sig = fitSigma(trainWindow, secs);
       if (sig <= 0) continue;
       runs.push({
@@ -382,7 +339,11 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
     const pointMass = probTables[i_][0] / 1e6;
     const floorStart = Math.max(0.125, pointMass + 0.02);
 
-    let chosen = 1;
+    /**
+     * Zero means "the sweep certified nothing", which is not the same as a floor of
+     * one. It is checked below rather than shipped.
+     */
+    let chosen = 0;
     for (let mp = floorStart; mp <= 0.8; mp += 0.005) {
       let staked = 0;
       let returned = 0;
@@ -409,6 +370,27 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
         break;
       }
     }
+
+    /**
+     * A round the walk-forward gate cannot certify must not be emitted.
+     *
+     * The previous behaviour left `chosen` at 1 — a probability floor of 100%, which
+     * makes the maximum multiplier 1.0x and the band window empty. That is a round
+     * nobody can buy, shipped silently inside a table that otherwise looks fine, and
+     * it reached tools/checks/paper-calibration.mjs before anything noticed. Refuse to
+     * write the tables instead, and say which round and on what evidence.
+     */
+    if (chosen === 0) {
+      throw new Error(
+        `${key} round ${i_} (${secs}s): no probability floor between ` +
+          `${floorStart.toFixed(3)} and 0.800 kept the vault ahead across ` +
+          `${runs.length} walk-forward fold(s). ` +
+          (runs.length === 0
+            ? `There were no folds at all — the tape is shorter than ${train + test}s, ` +
+              `so this is missing evidence rather than bad evidence.`
+            : `Re-run when the regime settles, or reconsider offering this round.`),
+      );
+    }
     minProbs.push(chosen);
 
     let staked = 0;
@@ -430,7 +412,7 @@ async function calibrate(key: string, symbol: string): Promise<MarketOut> {
     marketId: IDS[key],
     source: `binance:${symbol} 1s`,
     live: true,
-    sigma1e4: sigmas.map((s) => Math.max(1, Math.round(s * 1e8))),
+    sigma1e4: sigmas1e4,
     probTables,
     sigmaHaircut: HAIRCUT,
     minProb1e6: minProbs.map((p) => Math.round(p * 1e6)),
