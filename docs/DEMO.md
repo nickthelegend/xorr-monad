@@ -6,14 +6,23 @@ chain that settles in 300ms, and that everything on screen is real.
 ## Before you start
 
 ```
-anvil --fork-url https://rpc.monad.xyz --block-time 0.3 --chain-id 143
-cd packages/contracts && forge script script/Deploy.s.sol:Deploy --broadcast --rpc-url http://127.0.0.1:8545
-tools/setup-local.sh
-pnpm --filter @xorr/web build && pnpm --filter @xorr/web start
+pnpm demo
 ```
 
-Check the keeper is publishing before you present: `tail -f /tmp/keeper.log` should show
-a BTC/ETH line every second and a half.
+That forks Monad mainnet at 300ms, deploys with Kuru's book wired in, funds the vault
+from a real AUSD holder, starts the keeper and serves the console — waiting for each
+step to actually answer before moving to the next. It refuses to continue if the deploy
+came back without a Kuru oracle, or holding anything other than real Agora AUSD.
+
+It prints a health line at the end. Check it before you present:
+
+```
+curl -s localhost:3000/api/health
+```
+
+`chain`, `keeper` and `book` are reported separately, because a demo fails differently
+for each. The keeper's status is measured from the age of its last on-chain print, not
+from asking it whether it is alive.
 
 ---
 
@@ -60,10 +69,13 @@ Open **Menu → How it works**, and read the multiplier section out loud.
 
 Then the honesty beat:
 
-> "And the fee is 4%, but the real spread is wider — about 6% on short rounds. We shade
-> volatility to the quiet side so the vault survives a regime change, and that costs
-> something. It's written on the screen. That's also why there's no win percentage on
-> the deck: the model's number is a pricing input, not a forecast."
+> "And the fee is 4%, but the real spread is wider. We estimate volatility off the quiet
+> end of recent windows and quote the win-rate table at the high end of them, so the
+> vault survives a regime change — and that costs something. Replayed across four
+> separate stretches of held-out tape the real edge ran from about 3% to about 42%,
+> depending far more on how volatile that stretch was than on the round length. It's
+> written on the screen. That's also why there's no win percentage on the deck: the
+> model's number is a pricing input, not a forecast."
 
 ## 2:15 — live, on chain
 
@@ -95,8 +107,8 @@ Open **Menu → Leaderboard → TOP REKT**.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Desk says "fetching the real BTC price" | Binance unreachable | It will not invent one. Check the network. |
-| Live console says "chain unreachable" | anvil died | Restart anvil, redeploy, `tools/setup-local.sh` |
-| Price frozen on the live desk | keeper stopped | `tail /tmp/keeper.log`, restart it |
+| Live console says "chain unreachable" | anvil died | `pnpm demo --fresh` |
+| Price frozen on the live desk | keeper stopped | `/api/health` says so; `tail .xorr-logs/keeper.log` |
 | Fire does nothing | wallet on the wrong chain | The console asks the wallet to switch to 143 |
 
 ## Questions you will get

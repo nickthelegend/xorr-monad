@@ -42,6 +42,30 @@ There are no mocks in what ships. The one test double (`TestOracle`) lives under
 
 ## The order book is the price
 
+Nothing between the venue and the settlement is off-chain. The dashed edge is the only
+one that leaves the chain at all, and it carries BTC/ETH — never MON.
+
+```mermaid
+flowchart LR
+  W["wallet<br/><i>fireBand(shape, stake, tier)</i>"] --> RM["RangeMarket<br/><i>quote · fire · settle</i>"]
+  RM <--> V["XorrVault<br/><i>reserves the full payout</i>"]
+  RM --> OR{"OracleRouter<br/><i>sourceOf() answers<br/>provenance on-chain</i>"}
+
+  OR -->|MON| KO["KuruOracle"]
+  KO --> KB[("Kuru MON-AUSD<br/>order book")]
+  KO -. "refuses to price a book that is<br/>one-sided, crossed, too wide,<br/>too thin, or backed by dust" .-> NP(["no price<br/><i>settlement waits</i>"])
+
+  OR -->|BTC · ETH| KE["KeeperOracle<br/><i>deviation guard</i>"]
+  KE -.->|"the only off-chain hop"| BX["keeper<br/><i>republishes exchange tape</i>"]
+
+  classDef chain fill:#12261a,stroke:#3ddc84,color:#e8f5ec
+  classDef off fill:#2a2118,stroke:#ff9f0a,color:#f8ecd9
+  classDef stop fill:#2a1616,stroke:#e8453c,color:#f8dcda
+  class W,RM,V,OR,KO,KB,KE chain
+  class BX off
+  class NP stop
+```
+
 `KuruOracle` reads `bestBidAsk()` on Kuru's deployed MON-AUSD market and returns the
 midpoint. `OracleRouter` sends MON there and BTC/ETH to the push feed, so one
 `RangeMarket` serves both without knowing the difference — and a market can be moved
@@ -187,4 +211,6 @@ Beyond unit tests, `tools/checks/` holds the ones that check claims rather than 
 | `kuru-book.mjs` | Does the oracle read the deployed Kuru market, and refuse a thin one? |
 | `ui-quote.mjs` | Does the number the console printed match the kernel, recomputed from what was on screen? |
 
-`docs/TEST-PLAN.md` is the full plan every component was verified against.
+`docs/VERIFY.md` pairs every claim in this README with the command that proves it,
+and states what is trusted and what is not. `docs/TEST-PLAN.md` is the full plan every
+component was verified against.

@@ -200,11 +200,11 @@ at this machine to see it. A judge who cannot run the project scores what they c
 | 5.3 | If 5.1 chooses a chain deploy: run `Deploy.s.sol` against Monad testnet with `KURU_MON_AUSD` set, commit `deployments/<chainid>.json`, fund the vault, run the keeper on a host that stays up. | NOT STARTED |
 | 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | NOT STARTED |
 | 5.5 | Record a 3-minute demo video following `docs/DEMO.md`, and fix that script's stale numbers first (see 7.2). | NOT STARTED |
-| 5.6 | Write a **judge-facing one-pager** (idea #100): each claim, and the exact command that proves it. `pnpm check:kuru` for the book, `pnpm parity` for the two implementations, `pnpm check:edge` for solvency, `pnpm check:chain` for deployed-vs-SDK agreement. | NOT STARTED |
-| 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | IN PROGRESS — `tools/demo.sh` written and wired to `pnpm demo`; it got as far as forking, deploying and funding before the host ran out of disk. Not yet verified end to end. |
-| 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | IN PROGRESS — written and typechecks; reports chain / keeper-print-age / Kuru top-of-book, each from a contract call. Not yet exercised against a running stack. |
-| 5.9 | Favicon, web manifest, and an OG preview image. `layout.tsx` has `openGraph` title/description but **no image and no icons**. | NOT STARTED |
-| 5.10 | README diagram of the settlement path: wallet → RangeMarket → OracleRouter → KuruOracle → Kuru book (idea #96). | NOT STARTED |
+| 5.6 | Write a **judge-facing one-pager** (idea #100): each claim, and the exact command that proves it. `pnpm check:kuru` for the book, `pnpm parity` for the two implementations, `pnpm check:edge` for solvency, `pnpm check:chain` for deployed-vs-SDK agreement. | DONE — `docs/VERIFY.md`, every claim paired with the command that proves it |
+| 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | DONE — verified end to end: fork → deploy → fund → keeper → build → serve, all three health parts green |
+| 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | DONE — happy path and the degraded path both exercised: stopping the keeper flipped it to `degraded` with the real print age |
+| 5.9 | Favicon, web manifest, and an OG preview image. `layout.tsx` has `openGraph` title/description but **no image and no icons**. | DONE — `icon.svg`, `manifest.webmanifest` and a generated `opengraph-image`; all three serve, the OG render visually checked |
+| 5.10 | README diagram of the settlement path: wallet → RangeMarket → OracleRouter → KuruOracle → Kuru book (idea #96). | DONE — mermaid settlement path in the README, with the single off-chain hop marked |
 
 ## Phase 6 — Solvency hardening and operations *(IN PROGRESS)*
 
@@ -221,7 +221,7 @@ three times already. The structural fix landed (`527611c`); the operational half
 | 6.6 | Prove keeper restart-safety with a test rather than a comment (idea #83). It re-bases past the deviation guard after a gap; that path has no test. | NOT STARTED |
 | 6.7 | Transaction queue so two fires cannot collide on a nonce (idea #76). No nonce management exists in `useLiveDesk.ts`. | NOT STARTED |
 | 6.8 | Retry with backoff on RPC failure, surfaced rather than hidden (idea #78). | NOT STARTED |
-| 6.9 | Rate-limit `/api/price` and briefly cache upstream prices to survive an exchange hiccup (ideas #79, #80). Currently every client request hits Binance with `cache: "no-store"`. | NOT STARTED |
+| 6.9 | Rate-limit `/api/price` and briefly cache upstream prices to survive an exchange hiccup (ideas #79, #80). Currently every client request hits Binance with `cache: "no-store"`. | DONE — 1s spot / 15s history cache with in-flight de-duplication, plus a 60-per-10s per-caller limit. Verified: identical price within TTL, and 70 rapid calls gave 58×200 then 12×429 |
 | 6.10 | Run `check:edge` in CI on a schedule so a regime change is caught by the repo, not by a judge. Depends on 7.5. | NOT STARTED |
 
 ## Phase 7 — Documentation truth pass *(IN PROGRESS)*
@@ -233,11 +233,11 @@ is "check what we say", so a stale number costs more here than in an ordinary re
 |---|---|---|
 | 7.1 | `README.md` says **"90 Solidity tests, 33 TypeScript tests"**. Actual: **104 and 33**. | DONE |
 | 7.2 | `docs/HACKATHON.md` closes with **"71 Solidity tests, 26 TypeScript tests"**. Actual: **104 and 33**. | DONE |
-| 7.3 | `docs/DEMO.md` says the real spread is **"about 6% on short rounds"**. Actual, post-envelope: **about 3% to 42% across four windows**, driven by regime rather than round length. The same passage is already corrected in the app, README and HACKATHON.md — DEMO.md was missed. | NOT STARTED |
+| 7.3 | `docs/DEMO.md` says the real spread is **"about 6% on short rounds"**. Actual, post-envelope: **about 3% to 42% across four windows**, driven by regime rather than round length. The same passage is already corrected in the app, README and HACKATHON.md — DEMO.md was missed. | DONE |
 | 7.4 | `.env.example` documents `ORACLE_KIND` as **`mock \| chainlink \| pyth`**. `Deploy.s.sol` accepts **`keeper \| chainlink \| pyth`** and has no mock path. The file advertises a mock that cannot be deployed, directly contradicting the "no mocks" claim. | DONE — and the file was worse than stale: it omitted `KURU_MON_AUSD` (the sponsor-track variable) and six others the code reads, while listing three nothing reads. Rewritten against a grep of `process.env.*` and the deploy script's `envOr` calls; the stale `deployments/31337.json` recording `"oracleKind": "mock"` is deleted. |
-| 7.5 | `docs/DEMO.md`'s setup block omits `KURU_MON_AUSD=…` before `Deploy.s.sol`. Without it the Kuru oracle is never configured and the MON market — the sponsor-track market — is silently absent. | NOT STARTED |
+| 7.5 | `docs/DEMO.md`'s setup block omits `KURU_MON_AUSD=…` before `Deploy.s.sol`. Without it the Kuru oracle is never configured and the MON market — the sponsor-track market — is silently absent. | DONE — the block is now `pnpm demo`, which fails loudly if the Kuru oracle or real AUSD is missing |
 | 7.6 | README's check table omits `tools/checks/ui-quote.mjs`, which exists. | DONE |
-| 7.7 | Security notes: what is trusted, what is not (idea #98). Guards are documented per-contract; there is no single page a judge can read. | NOT STARTED |
+| 7.7 | Security notes: what is trusted, what is not (idea #98). Guards are documented per-contract; there is no single page a judge can read. | DONE — in `docs/VERIFY.md`: what is trusted, what is not, and the known exposures |
 | 7.8 | `docs/TEST-PLAN.md` summary now covers all 18 sections and this run's re-verification | DONE |
 
 ## Phase 8 — Depth items from the ranked backlog
