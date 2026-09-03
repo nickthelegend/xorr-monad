@@ -161,6 +161,16 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
   );
 
   const dp = dpOf(t.marketId);
+  const market = MARKETS.find((m) => m.marketId.toLowerCase() === t.marketId.toLowerCase());
+  const marketKey = market?.key ?? "BTC";
+  /**
+   * The band as half-widths around its own centre, in 1e4-scaled bps — the units the
+   * contract's `fireBand` uses. Derived from the stored endpoints rather than stored
+   * separately, so this cannot drift from what actually settled.
+   */
+  const centre = (t.low + t.high) / 2n;
+  const lowHalfBps = centre > 0n ? ((centre - t.low) * 100_000_000n) / centre : 0n;
+  const highHalfBps = centre > 0n ? ((t.high - centre) * 100_000_000n) / centre : 0n;
   const status = STATUS[t.status] ?? "open";
   const won = status === "won";
   const tone = won ? "text-green" : status === "lost" ? "text-red" : "text-white/70";
@@ -207,11 +217,26 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
           one.
         </p>
 
+        {/*
+          * Take the same shape, not the same prices.
+          *
+          * The band is passed as its half-widths in bps, which is what `fireBand`
+          * itself takes — the market centres a shape on the print at execution, so a
+          * band copied as absolute prices would be a band around a price that has
+          * since moved. Copying the shape is copying the trade; copying the numbers
+          * would be copying a moment.
+          */}
         <Link
-          href="/play"
+          href={`/play?lowBps=${lowHalfBps}&highBps=${highHalfBps}&market=${marketKey}`}
           className="mt-5 block rounded-full bg-amber-2 py-3 text-center text-[13px] font-extrabold text-black"
         >
-          PLAY A ROUND
+          TAKE THIS BAND
+        </Link>
+        <Link
+          href="/play"
+          className="mt-2 block py-2 text-center text-[12px] text-white/45 underline"
+        >
+          or open the console
         </Link>
       </div>
     </main>

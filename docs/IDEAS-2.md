@@ -149,3 +149,30 @@ exists to answer it, and the top item answers it structurally rather than with a
 
 Tier 1 in order, then Tier 2 by rank, then whatever of Tiers 3–5 the time allows.
 Tier 6 is not built on purpose, and saying so is part of the point.
+
+---
+
+## What was built, and verified
+
+Working down the ranking. Every one of these was run against the live fork and the real
+Kuru market before the next was started, and the whole suite re-run after each.
+
+| # | Idea | Evidence |
+|---|---|---|
+| 1 | **TWAP mark** — settle on a 3-second on-chain average | `poke` records the mark, `latest` averages it. A test holds the book 20% away for one second: spot follows all the way, the average moves under 1%. Live on the fork: 287 readings, `twap(3s)` = `latest()` = 0.025192 |
+| 2 | **Manipulation-cost calculator** | Walks the live ladder: $33 and four levels to push the mark 1% up, $35 and five down. Five unit tests, including that an unreachable target is reported rather than extrapolated |
+| 3 | **On-chain settlement receipt** | `Poked` carries the mark with the bid, ask, spread and depth it was taken under, on every reading rather than only at settlements |
+| 4 | **Depth at your band's width** | Live: "inside the spread" — every band the desk offers for MON is narrower than the book's 198 bps, which is the honest and more interesting answer than a zero |
+| 5 | **"Why this price" trace** | Six steps with this block's numbers, in the order the contract runs them |
+| 6 | **Book pressure** | Live: 65% bid, 5.0k against 2.7k |
+| 8 | **Touch moved in the window** | Reads the touch at the block the window opened; live it reads unchanged, which is the truth for this book |
+| 9 | **Book at the settling block, on the ticket** | Implemented and degrades correctly — anvil's fork cannot resolve Kuru's bytecode at a historical block, so it renders nothing rather than substituting the current book |
+| 13 | **Take this band** | The permalink hands back the band's *shape*, not its prices: `/play?lowBps=…&highBps=…&market=MON` loaded MON at 4.30x rather than the default |
+
+### Not built, and why
+
+| # | Idea | Reason |
+|---|---|---|
+| 7 | Impact preview for a settle-sized order | Redundant once #2 shipped — both walk the same ladder, and two numbers doing one job is clutter |
+| 10 | Spread-aware band floor | **Wrong as stated.** The mark is a midpoint, so it lives inside the spread where by definition nothing rests. Refusing bands tighter than the spread would refuse bands the market settles perfectly well. The real version of this concern is aligning to the mark's own grid, which the half-tick snap already does |
+| 11–100 | The rest | Time. They are ranked, and the ranking is the honest part |

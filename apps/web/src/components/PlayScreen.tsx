@@ -80,6 +80,36 @@ export function PlayScreen() {
   const [lastBand, setLastBand] = useState<{ lowHalf1e4: bigint; highHalf1e4: bigint } | null>(
     null,
   );
+
+  /**
+   * A band arriving from a shared ticket.
+   *
+   * Read once, applied once, and only after the market has a price — the band solver
+   * has no legal window to clamp against until then, and applying a shape into a null
+   * window would silently produce the default one instead. `applied` makes it a
+   * one-shot: re-clamping every render would fight the player the moment they touched
+   * the rules.
+   */
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current || !band.ready) return;
+    const q = new URLSearchParams(window.location.search);
+    const lo = q.get("lowBps");
+    const hi = q.get("highBps");
+    const mkt = q.get("market");
+    if (mkt && mkt !== state.market.key && MARKETS.some((m) => m.key === mkt)) {
+      setMarketKey(mkt);
+      return; // re-run once the new market has a price of its own
+    }
+    if (!lo || !hi || !/^\d+$/.test(lo) || !/^\d+$/.test(hi)) {
+      applied.current = true;
+      return;
+    }
+    applied.current = true;
+    band.setShape({ lowHalf1e4: BigInt(lo), highHalf1e4: BigInt(hi) });
+    setFlash({ kind: "won", text: "BAND LOADED" });
+    setTimeout(() => setFlash(null), 1600);
+  }, [band, state.market.key, setMarketKey]);
   /**
    * Attract mode: fire on a cadence so the loop is visible with nobody touching it.
    *
