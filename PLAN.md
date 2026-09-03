@@ -279,7 +279,7 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 
 | # | Idea | Task | Status |
 |---|---|---|---|
-| 8.10 | #27 | **Rooms UI.** `RoomMarket` is deployed and has 12 passing tests, but `roomMarket` is read in `chain.ts` and used nowhere. An entire working contract is unreachable from the product. | NOT STARTED |
+| 8.10 | #27 | **Rooms UI.** `RoomMarket` is deployed and has 12 passing tests, but `roomMarket` is read in `chain.ts` and used nowhere. An entire working contract is unreachable from the product. | DONE — create, join by code, lobby and settle, all real transactions. Verified live: room `3LE74` opened by one account and joined by another, pot $5 → $10, both bands on screen, and the vault's reserved stayed at 0 throughout |
 | 8.11 | #37 | Keyboard shortcuts in live mode. `PlayScreen` binds `keydown`; `LiveConsole` binds none. | NOT STARTED |
 | 8.12 | #38 | Touch drag for band edges on mobile | NOT STARTED |
 | 8.13 | #35/#36 | Shareable ticket permalink and a per-ticket OG card | NOT STARTED |

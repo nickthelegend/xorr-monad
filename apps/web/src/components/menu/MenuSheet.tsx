@@ -12,6 +12,7 @@ import { Settings } from "./Settings";
 import { Customize } from "./Customize";
 import { Account } from "./Account";
 import { Achievements } from "./Achievements";
+import { Rooms } from "./Rooms";
 import { Vault } from "./Vault";
 
 type View =
@@ -26,7 +27,8 @@ type View =
   | "customize"
   | "account"
   | "awards"
-  | "vault";
+  | "vault"
+  | "rooms";
 
 export function MenuSheet({
   onClose,
@@ -97,6 +99,13 @@ export function MenuSheet({
     return (
       <Sheet onClose={onClose} onBack={back} title="The vault">
         <Vault />
+      </Sheet>
+    );
+
+  if (view === "rooms")
+    return (
+      <Sheet onClose={onClose} onBack={back} title="Rooms">
+        <Rooms />
       </Sheet>
     );
 
@@ -223,6 +232,7 @@ export function MenuSheet({
 
       <div className="mt-3 space-y-2">
         <Row icon="🏅" label="All Achievements" onClick={() => setView("awards")} />
+        <Row icon="🎯" label="Rooms · play against other people" onClick={() => setView("rooms")} />
         <Row icon="🏦" label="The vault · take the house side" onClick={() => setView("vault")} />
         <Row icon="🧭" label="How it works" onClick={() => setView("howto")} />
         <Row icon="ℹ️" label="About XORR" onClick={() => setView("about")} />
