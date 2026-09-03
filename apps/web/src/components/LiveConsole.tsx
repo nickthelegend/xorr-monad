@@ -76,6 +76,34 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
     }
   }, [state.account, live, band.band, stake, say]);
 
+  /**
+   * The same keys as the demo desk.
+   *
+   * They existed only on paper, which made live mode quietly worse to use than the
+   * practice mode — and on a three-second round, reaching for the mouse is the
+   * difference between the band you painted and the band you got. `a`/Enter fires,
+   * `[` and `]` walk the band, exactly as they do next door.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Never steal a keystroke someone is typing into a field.
+      const el = e.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+
+      if (e.key === "a" || e.key === "A" || e.key === "Enter") {
+        e.preventDefault();
+        void doFire();
+      } else if (e.key === "[") {
+        band.nudge(-0.08);
+      } else if (e.key === "]") {
+        band.nudge(0.08);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doFire, band]);
+
   if (!LIVE_CONFIGURED) {
     return (
       <div className="tiled grid min-h-dvh place-items-center px-4">

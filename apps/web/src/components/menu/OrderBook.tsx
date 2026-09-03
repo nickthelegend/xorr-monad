@@ -34,6 +34,16 @@ interface Book {
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
   /** Which oracle OracleRouter sends MON to, read from the chain at this block. */
   routed?: { source: string; label: string } | null;
+  /** The same asset on a centralised book, for scale. */
+  basis?: {
+    venue: string;
+    bid: number;
+    ask: number;
+    mid: number;
+    spreadBps: number;
+    basisBps: number;
+    onchainSpreadBps: number;
+  } | null;
   health?: string;
   tradeable?: boolean;
   reason?: string;
@@ -204,6 +214,8 @@ export function OrderBook() {
         ))}
       </div>
       )}
+
+      {book.basis ? <Basis basis={book.basis} /> : null}
 
       {/* ---- venue activity, clearly separated from anything used for pricing */}
       {book.venue ? (
@@ -481,5 +493,47 @@ function MarkProvenance({ book }: { book: Book }) {
       <span className="text-white">KuruOracle</span>. No relayer, no API, nothing
       off-chain between the venue and the price.
     </p>
+  );
+}
+
+/**
+ * The on-chain book next to a centralised one.
+ *
+ * "198 bps" means nothing without something to measure it against. Coinbase quotes the
+ * same asset a few basis points wide, so putting the two side by side says what a
+ * reader would otherwise have to know already: this book is far wider and slightly
+ * offset, and XORR settles on it anyway.
+ *
+ * Reported, never corrected for. A market that settles on the book has to settle on the
+ * book when a centralised venue disagrees, or it is not settling on the book at all.
+ */
+function Basis({ basis }: { basis: NonNullable<Book["basis"]> }) {
+  const wider = basis.spreadBps > 0 ? basis.onchainSpreadBps / basis.spreadBps : 0;
+  const richer = basis.basisBps >= 0;
+  return (
+    <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+      <div className="label">Against a centralised book · {basis.venue}</div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+        <Stat label="Their mid" value={px(basis.mid)} />
+        <Stat
+          label="Their spread"
+          value={`${basis.spreadBps < 10 ? basis.spreadBps.toFixed(1) : basis.spreadBps.toFixed(0)} bps`}
+        />
+        <Stat
+          label="Basis"
+          value={`${richer ? "+" : ""}${basis.basisBps.toFixed(0)} bps`}
+        />
+        <Stat
+          label="Spread ratio"
+          value={wider >= 1 ? `${wider.toFixed(0)}x wider` : `${(1 / wider).toFixed(1)}x tighter`}
+        />
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-white/40">
+        This is reported, not corrected for. XORR settles MON on the book above even
+        when a centralised venue disagrees — a market that quietly leans on the
+        centralised price when the two diverge is not settling on an order book, it is
+        settling on a feed with extra steps.
+      </p>
+    </div>
   );
 }

@@ -122,6 +122,36 @@ function assess(
   return { health: "tight" as const, tradeable: true, reason: "" };
 }
 
+
+/**
+ * The same asset on the deepest centralised venue that lists it.
+ *
+ * MON is not on Binance, but Coinbase quotes MON-USD — so the on-chain book can be put
+ * next to an order book with real size and a real spread, which is the only way to say
+ * anything meaningful about how wide 198 bps actually is. The basis is reported, not
+ * corrected for: nothing here touches pricing, and a market that settles on the book
+ * must settle on the book even when a centralised venue disagrees.
+ *
+ * Failing to reach Coinbase costs the panel one row and nothing else.
+ */
+async function centralisedQuote() {
+  try {
+    const r = await fetch("https://api.exchange.coinbase.com/products/MON-USD/ticker", {
+      signal: AbortSignal.timeout(6_000),
+      cache: "no-store",
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { bid?: string; ask?: string };
+    const bid = Number(j.bid);
+    const ask = Number(j.ask);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= bid) return null;
+    const mid = (bid + ask) / 2;
+    return { venue: "coinbase:MON-USD", bid, ask, mid, spreadBps: ((ask - bid) / mid) * 10_000 };
+  } catch {
+    return null;
+  }
+}
+
 async function venueStats(market: string) {
   try {
     const r = await fetch(`https://api.kuru.io/api/v1/markets/${market}`, {
@@ -340,6 +370,8 @@ export async function GET() {
      * A router that is not pointing at this oracle is the interesting case, and it must
      * not stop the panel rendering — so it is read separately and allowed to fail.
      */
+    const cex = await centralisedQuote();
+
     let routed: { source: Address; label: string } | null = null;
     if (ROUTER) {
       try {
@@ -411,6 +443,14 @@ export async function GET() {
         },
         // Which oracle the market is routed to, read from the router at this block.
         routed,
+        // The same asset on a centralised book, and how far apart the two are.
+        basis: cex
+          ? {
+              ...cex,
+              basisBps: ((Number(mid8) / 1e8 - cex.mid) / cex.mid) * 10_000,
+              onchainSpreadBps: Number(spreadBps),
+            }
+          : null,
         // The venue's own rules, read from the book rather than assumed.
         params: {
           tickSize: Number(params[2]) / PRICE_PRECISION,
