@@ -54,16 +54,57 @@ contract KuruOracle is IXorrOracle, Owned {
         uint8 depthLevels;
         Mark mark;
         bool enabled;
+        /**
+         * @dev Seconds of time-weighted average to settle on. Zero means settle on the
+         *      instantaneous mark.
+         *
+         *      This is the answer to the only question that really matters about
+         *      settling a derivative on an order book: what stops someone moving the
+         *      book at the cutoff block. A spot mark is worth attacking for exactly one
+         *      block. An average over the round means an attacker has to hold the book
+         *      away from its true price for the whole round, against everyone else's
+         *      resting orders, and pay the spread on the way in and out — which is not
+         *      a guard against manipulation, it is a price for it.
+         */
+        uint32 twapWindow;
     }
 
+    /**
+     * @notice One reading of the mark, and the time-weighted sum up to it.
+     * @dev Packed into a single slot: a timestamp good until 2106 and a cumulative
+     *      large enough for a 1e18-scaled mark accumulating for centuries.
+     */
+    struct Obs {
+        uint32 t;
+        uint224 cum;
+    }
+
+    /// @dev How many readings each market keeps. At one poke per Monad block this is
+    ///      roughly nine minutes of history, which covers every round the market sells
+    ///      except the fifteen-minute one — and that one is long enough that a
+    ///      cutoff-block attack on it is not the threat being defended against.
+    uint16 public constant CARDINALITY = 1800;
+
+    /// @dev How stale the newest reading may be before the average is refused.
+    uint32 public constant MAX_OBS_AGE = 5;
+
     mapping(bytes32 => Book) public books;
+
+    mapping(bytes32 => Obs[CARDINALITY]) internal _obs;
+    /// @dev Index of the newest reading, and how many slots have ever been written.
+    mapping(bytes32 => uint16) public obsIndex;
+    mapping(bytes32 => uint16) public obsCount;
 
     event BookSet(bytes32 indexed marketId, address market, uint32 maxSpreadBps, bool enabled);
     event DepthFloorSet(bytes32 indexed marketId, uint32 bandBps, uint128 minDepth, uint8 levels);
     event MarkSet(bytes32 indexed marketId, Mark mark);
+    event TwapWindowSet(bytes32 indexed marketId, uint32 seconds_);
+    event Poked(bytes32 indexed marketId, uint256 mark8, uint32 at);
 
     error NoBook();
     error BadSpread();
+    error NoMark();
+    error WindowTooLong();
 
     constructor(address _owner) Owned(_owner) {}
 
@@ -89,6 +130,17 @@ contract KuruOracle is IXorrOracle, Owned {
      * the OPPOSITE side, which is the standard correction and, on the current book,
      * moves the mark by nearly a hundred basis points.
      */
+    /**
+     * @notice Settle this market on a time-weighted average of the mark.
+     * @param seconds_ Length of the window. Zero settles on the instantaneous mark.
+     */
+    function setTwapWindow(bytes32 marketId, uint32 seconds_) external onlyOwner {
+        // A window longer than the buffer can hold is a window the oracle cannot honour.
+        if (seconds_ > uint32(CARDINALITY) * 60) revert WindowTooLong();
+        books[marketId].twapWindow = seconds_;
+        emit TwapWindowSet(marketId, seconds_);
+    }
+
     function setMark(bytes32 marketId, Mark mark) external onlyOwner {
         books[marketId].mark = mark;
         emit MarkSet(marketId, mark);
@@ -119,6 +171,103 @@ contract KuruOracle is IXorrOracle, Owned {
         emit DepthFloorSet(marketId, bandBps, minDepth, levels);
     }
 
+    /**
+     * @notice Record the current mark into this market's history.
+     * @dev Permissionless on purpose. There is nothing to gain from calling it: the
+     *      value written is read from the book by this contract, not supplied by the
+     *      caller, so a poke can only make the average more accurate. Withholding pokes
+     *      is the only lever an attacker has, and that is what the staleness check in
+     *      `_twap` is for.
+     *
+     *      Returns false rather than reverting when the book has no valid mark, so a
+     *      keeper poking on a timer is not fighting the guards.
+     */
+    function poke(bytes32 marketId) external returns (bool written) {
+        Book memory b = books[marketId];
+        (uint256 mark8,) = _spot(b, marketId);
+        if (mark8 == 0) return false;
+
+        uint16 count = obsCount[marketId];
+        uint16 idx = obsIndex[marketId];
+        uint32 nowT = uint32(block.timestamp);
+
+        if (count == 0) {
+            _obs[marketId][0] = Obs({t: nowT, cum: 0});
+            obsIndex[marketId] = 0;
+            obsCount[marketId] = 1;
+            emit Poked(marketId, mark8, nowT);
+            return true;
+        }
+
+        Obs memory last = _obs[marketId][idx];
+        // More than one poke in the same second adds nothing; the elapsed time is zero.
+        if (nowT == last.t) return false;
+
+        uint224 cum = last.cum + uint224(mark8) * uint224(nowT - last.t);
+        uint16 next = uint16((idx + 1) % CARDINALITY);
+        _obs[marketId][next] = Obs({t: nowT, cum: cum});
+        obsIndex[marketId] = next;
+        if (count < CARDINALITY) obsCount[marketId] = count + 1;
+
+        emit Poked(marketId, mark8, nowT);
+        return true;
+    }
+
+    /**
+     * @notice Time-weighted average mark over the last `window` seconds.
+     * @dev Zero when the history cannot support the window — too few readings, not
+     *      enough elapsed time, or a newest reading old enough that the average would
+     *      be describing a book that has since moved. Returning zero makes the market
+     *      refuse to settle, which is the same answer every other guard here gives.
+     */
+    function twap(bytes32 marketId, uint32 window) external view returns (uint256) {
+        return _twap(marketId, window);
+    }
+
+    function _twap(bytes32 marketId, uint32 window) internal view returns (uint256) {
+        if (window == 0) return 0;
+        uint16 count = obsCount[marketId];
+        if (count < 2) return 0;
+
+        uint16 idx = obsIndex[marketId];
+        Obs memory newest = _obs[marketId][idx];
+
+        /**
+         * A history that stopped being written is not an average, it is a memory.
+         *
+         * The limit is absolute rather than a fraction of the window. Tying it to the
+         * window looked tidy and was wrong: a three-second window gave a one-and-a-half
+         * second tolerance, which is shorter than one poke's round trip, so the oracle
+         * refused to price a book it had sixteen good readings of. The question this
+         * guard asks — "is anyone still watching" — does not get a different answer for
+         * a shorter window.
+         *
+         * Withholding pokes is the only lever this gives an attacker, and it costs them
+         * the settlement rather than winning it: the market refuses to settle, it does
+         * not settle wrong.
+         */
+        if (block.timestamp > uint256(newest.t) + MAX_OBS_AGE) return 0;
+
+        // Walk back to the oldest reading still inside the window, or the oldest we have.
+        uint32 target = uint32(block.timestamp) >= window
+            ? uint32(block.timestamp) - window
+            : 0;
+
+        Obs memory oldest = newest;
+        for (uint16 i = 1; i < count; i++) {
+            Obs memory o = _obs[marketId][uint16((idx + CARDINALITY - i) % CARDINALITY)];
+            oldest = o;
+            if (o.t <= target) break;
+        }
+
+        if (newest.t <= oldest.t) return 0;
+        uint32 span = newest.t - oldest.t;
+        // Refuse to call a two-second sample a thirty-second average.
+        if (span * 2 < window) return 0;
+
+        return uint256(newest.cum - oldest.cum) / span;
+    }
+
     // ----------------------------------------------------------------- reads
 
     /// @inheritdoc IXorrOracle
@@ -127,6 +276,33 @@ contract KuruOracle is IXorrOracle, Owned {
     ///      happen — if the venue is quiet the orders are simply still there.
     function latest(bytes32 marketId) external view returns (uint256 price, uint256 updatedAt) {
         Book memory b = books[marketId];
+
+        /**
+         * A configured window settles on the average, not on this instant.
+         *
+         * Everything below still runs first, because a book that fails its guards has
+         * no price to average — an average of numbers the oracle would have refused is
+         * not safer than the numbers, it just hides them.
+         */
+        if (b.twapWindow != 0) {
+            uint256 avg = _twap(marketId, b.twapWindow);
+            if (avg == 0) return (0, 0);
+            // The spot read is the liveness check: if the book is one-sided, crossed or
+            // too wide right now, the market does not settle, whatever the average says.
+            (uint256 spot,) = _spot(b, marketId);
+            if (spot == 0) return (0, 0);
+            return (avg, block.timestamp);
+        }
+
+        return _spot(b, marketId);
+    }
+
+    /// @dev The instantaneous mark and its guards. `latest` is this, or an average of it.
+    function _spot(Book memory b, bytes32 marketId)
+        internal
+        view
+        returns (uint256 price, uint256 updatedAt)
+    {
         if (!b.enabled || address(b.market) == address(0)) return (0, 0);
 
         (uint256 bid, uint256 ask) = b.market.bestBidAsk();

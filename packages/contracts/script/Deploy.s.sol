@@ -94,6 +94,21 @@ contract Deploy is Script {
             // between them is a price neither side would trade at.
             kuru.setMark(MON, KuruOracle.Mark.MICRO);
 
+            /**
+             * Settle on a three-second average of that mark, not on the instant.
+             *
+             * A mark read at the cutoff block is worth attacking for exactly one block:
+             * push the book, settle, unwind. Ten blocks of average means holding the
+             * book away from its price for the whole window, against everyone else's
+             * resting orders and paying the spread both ways — the attack is not
+             * blocked, it is priced, which is the only version of this that holds.
+             *
+             * Three seconds rather than thirty on purpose. A longer window dilutes the
+             * attack further but makes the settling price lag the market, and a lag
+             * longer than the round is an exploit in the other direction.
+             */
+            kuru.setTwapWindow(MON, 3);
+
             OracleRouter router = new OracleRouter(deployer);
             router.setFallback(address(oracle), bytes8("keeper"));
             router.setRoute(MON, address(kuru), bytes8("kuru"));

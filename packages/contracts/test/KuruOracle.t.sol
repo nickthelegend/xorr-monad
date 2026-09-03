@@ -65,6 +65,121 @@ contract KuruOracleUnitTest is Test {
         oracle.setBook(MON, address(book), 500, true);
     }
 
+    // ------------------------------------------------------- the averaged mark
+
+    /// @dev Walk the book forward, poking once a second, so the history is real rather
+    ///      than written directly into storage.
+    function _run(uint256 bid, uint256 ask, uint256 secs) internal {
+        book.set(bid, ask);
+        for (uint256 i = 0; i < secs; i++) {
+            vm.warp(block.timestamp + 1);
+            oracle.poke(MON);
+        }
+    }
+
+    /**
+     * The whole point of the window: a book moved for one block barely moves the mark.
+     *
+     * Thirty seconds of history at one price, then a single second at a price 20% away
+     * — which is what an attacker who owns the cutoff block can produce. The spot mark
+     * follows them all the way; the average barely notices.
+     */
+    function test_ASingleBlockCannotMoveTheAveragedMark() public {
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 30);
+
+        _run(25_442_000_000_000_000, 25_952_000_000_000_000, 30); // ~0.025697 mid
+        (uint256 calm,) = oracle.latest(MON);
+
+        // One second of a book pushed 20% higher.
+        _run(30_530_000_000_000_000, 31_142_000_000_000_000, 1);
+        (uint256 attacked,) = oracle.latest(MON);
+
+        // What the market would have settled on with no window at all.
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 0);
+        (uint256 spot,) = oracle.latest(MON);
+
+        assertApproxEqRel(spot, 3_083_600, 0.01e18, "spot follows the attacker");
+        assertApproxEqRel(calm, 2_569_700, 0.01e18, "the average before the push");
+
+        uint256 spotMove = ((spot - calm) * 10_000) / calm;
+        uint256 avgMove = ((attacked - calm) * 10_000) / calm;
+        assertGt(spotMove, 1_800, "a spot mark moves ~20%");
+        assertLt(avgMove, 100, "one second in thirty moves the average under 1%");
+    }
+
+    /// @notice Holding the book away from its price for the whole window DOES move the
+    ///         average — and that is correct. The design does not claim to be
+    ///         unmanipulable, it claims manipulation costs the whole round.
+    function test_SustainedManipulationDoesMoveIt() public {
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 30);
+
+        _run(25_442_000_000_000_000, 25_952_000_000_000_000, 40);
+        (uint256 before,) = oracle.latest(MON);
+
+        _run(30_530_000_000_000_000, 31_142_000_000_000_000, 40);
+        (uint256 after_,) = oracle.latest(MON);
+
+        assertApproxEqRel(after_, 3_083_600, 0.02e18, "held for the whole window, it lands there");
+        assertGt(after_, before);
+    }
+
+    /// @notice A history nobody is writing is a memory, not an average.
+    function test_AStaleHistoryRefusesToSettle() public {
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 30);
+        _run(25_442_000_000_000_000, 25_952_000_000_000_000, 40);
+
+        (uint256 fresh,) = oracle.latest(MON);
+        assertGt(fresh, 0);
+
+        // Nobody pokes for longer than the oracle's tolerance.
+        vm.warp(block.timestamp + 6);
+        (uint256 stale,) = oracle.latest(MON);
+        assertEq(stale, 0, "an unmaintained history must not settle a market");
+    }
+
+    /// @notice Too little history is refused rather than averaged over a short span.
+    function test_TooLittleHistoryRefusesToSettle() public {
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 30);
+        _run(25_442_000_000_000_000, 25_952_000_000_000_000, 3);
+
+        (uint256 p,) = oracle.latest(MON);
+        assertEq(p, 0, "three seconds is not a thirty-second average");
+    }
+
+    /// @notice The guards still run. An average of readings the oracle would have
+    ///         refused is not safer than the readings.
+    function test_TheSpotGuardsStillApplyUnderAWindow() public {
+        vm.prank(owner);
+        oracle.setTwapWindow(MON, 30);
+        _run(25_442_000_000_000_000, 25_952_000_000_000_000, 40);
+        assertGt(_price(), 0);
+
+        // The book goes one-sided right now, whatever the history says.
+        book.set(0, 25_952_000_000_000_000);
+        assertEq(_price(), 0, "a one-sided book does not settle on an old average");
+    }
+
+    function _price() internal view returns (uint256 p) {
+        (p,) = oracle.latest(MON);
+    }
+
+    /// @notice Poking a book with no valid mark writes nothing and does not revert.
+    function test_PokeOnABadBookIsANoop() public {
+        book.set(0, 0);
+        assertFalse(oracle.poke(MON), "nothing to record");
+        assertEq(oracle.obsCount(MON), 0);
+    }
+
+    function test_TwapWindowIsOwnerOnly() public {
+        vm.expectRevert();
+        oracle.setTwapWindow(MON, 30);
+    }
+
     function test_MidOfTheBookIsThePrice() public {
         book.set(25_442_000_000_000_000, 25_952_000_000_000_000); // 0.025442 / 0.025952
         (uint256 p, uint256 t) = oracle.latest(MON);

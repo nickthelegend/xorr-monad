@@ -377,7 +377,9 @@ export async function GET(req: Request) {
         abi: KuruOracleAbi,
         functionName: "books",
         args: [MON_ID],
-      }) as Promise<readonly [Address, number, number, bigint, number, number, boolean]>,
+      }) as Promise<
+        readonly [Address, number, number, bigint, number, number, boolean, number]
+      >,
       venueStats(KURU_BOOK),
     ]);
 
@@ -422,7 +424,7 @@ export async function GET(req: Request) {
      * should be told the guard is why, not left to infer the market is priced on the
      * midpoint by design.
      */
-    const [, , , minDepth, , markEnum] = cfg;
+    const [, , , minDepth, , markEnum, , twapWindow] = cfg;
     const mark = markEnum === 1 ? ("MICRO" as const) : ("MID" as const);
     const dustFloorRaw = minDepth / 20n;
     const microGuarded =
@@ -456,6 +458,12 @@ export async function GET(req: Request) {
             mark,
             microGuarded,
             dustFloor: Number(dustFloorRaw) / SIZE_PRECISION,
+            /**
+             * Seconds of time-weighted average the market settles on. Zero is the
+             * instantaneous mark — worth showing either way, because which one is in
+             * force is the answer to the sharpest question about this design.
+             */
+            twapWindow: Number(twapWindow),
           },
         },
         // Which oracle the market is routed to, read from the router at this block.

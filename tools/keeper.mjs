@@ -45,6 +45,19 @@ const PK =
 const TICK_MS = Number(process.env.TICK_MS ?? 1500);
 /** How often to refit volatility and push it on-chain. 0 disables re-marking. */
 const REMARK_MS = Number(process.env.REMARK_MS ?? 900_000);
+/**
+ * How often to record the Kuru mark into the oracle's history.
+ *
+ * The window is three seconds — ten Monad blocks — so a poke every half second gives
+ * the average six readings to work with and keeps the newest one comfortably inside the
+ * staleness limit. Three seconds is chosen against a real tension rather than picked to
+ * sound safe: a longer window dilutes a cutoff-block attack further, but it also makes
+ * the settling price lag the market, and a lag longer than the round is an exploit in
+ * the other direction — a player who watches the price jump would know the settle has
+ * not caught up. Ten blocks is a tenfold cost increase on the attack for a lag well
+ * inside even the shortest round.
+ */
+const POKE_MS = Number(process.env.POKE_MS ?? 500);
 
 /**
  * One JSON object per line.
@@ -72,11 +85,15 @@ const deployment = JSON.parse(readFileSync(`${root}deployments/${CHAIN_ID}.json`
  * nothing for a keeper to publish.
  */
 const FEED = deployment.feedOracle ?? deployment.oracle;
+const KURU_ORACLE = deployment.kuruOracle;
+/** keccak256("MON-USD") — the market priced from Kuru's book. */
+const MON_ID = "0x92bcb7355458a976a0b6be05319d37cc66bc1792624ca67226af747c1de28f62";
 
 const abi = (name, dir = "src") =>
   JSON.parse(readFileSync(`${root}out/${name}.sol/${name}.json`, "utf8")).abi;
 const RangeMarketAbi = abi("RangeMarket");
 const KeeperOracleAbi = abi("KeeperOracle");
+const KuruOracleAbi = abi("KuruOracle");
 
 const chain = defineChain({
   id: CHAIN_ID,
@@ -327,6 +344,38 @@ log("start", {
   tickMs: TICK_MS,
   remarkMs: REMARK_MS,
 });
+
+/**
+ * Record the Kuru mark on its own clock.
+ *
+ * Separate from the publish loop because it runs six times as often and must not be
+ * held up by a Binance fetch — the value of the average comes from the readings being
+ * evenly spaced, and a gap is exactly what the staleness check refuses to average over.
+ */
+let poking = false;
+let pokes = 0;
+async function pokeLoop() {
+  if (KURU_ORACLE && !poking) {
+    poking = true;
+    try {
+      const hash = await wallet.writeContract({
+        address: KURU_ORACLE,
+        abi: KuruOracleAbi,
+        functionName: "poke",
+        args: [MON_ID],
+      });
+      await pub.waitForTransactionReceipt({ hash });
+      pokes++;
+      if (pokes % 60 === 1) log("poked", { market: "MON", pokes });
+    } catch (e) {
+      if (pokes % 60 === 1) log("poke_failed", { error: String(e).slice(0, 160) });
+      pokes++;
+    }
+    poking = false;
+  }
+  setTimeout(pokeLoop, POKE_MS);
+}
+if (KURU_ORACLE) pokeLoop();
 
 let running = false;
 async function loop() {

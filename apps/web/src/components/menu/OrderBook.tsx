@@ -29,6 +29,7 @@ interface Book {
       mark: "MID" | "MICRO";
       microGuarded: boolean;
       dustFloor: number;
+      twapWindow: number;
     };
   };
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
@@ -263,6 +264,8 @@ export function OrderBook() {
         ))}
       </div>
       )}
+
+      {b.marks ? <SettlementWindow marks={b.marks} /> : null}
 
       {book.basis ? <Basis basis={book.basis} /> : null}
 
@@ -613,6 +616,50 @@ function Basis({ basis }: { basis: NonNullable<Book["basis"]> }) {
         centralised price when the two diverge is not settling on an order book, it is
         settling on a feed with extra steps.
       </p>
+    </div>
+  );
+}
+
+/**
+ * What the market actually settles on, and why it is an average.
+ *
+ * This is the answer to the only hard question about settling a derivative on an order
+ * book — what stops someone moving the book at the cutoff block — so it is stated on
+ * the screen rather than left in a README. It is also stated as a price rather than as
+ * a defence: the attack is not blocked, it is made to cost the whole window.
+ */
+function SettlementWindow({
+  marks,
+}: {
+  marks: NonNullable<NonNullable<Book["onchain"]>["marks"]>;
+}) {
+  const blocks = Math.round((marks.twapWindow * 1000) / 300);
+  return (
+    <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+      <div className="label">Settles on</div>
+      <div className="mt-1 text-[15px] font-semibold text-white">
+        {marks.twapWindow > 0
+          ? `a ${marks.twapWindow}-second average of the mark`
+          : "the mark at the cutoff block"}
+      </div>
+      {marks.twapWindow > 0 ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+          {blocks} blocks, recorded on-chain by anyone who calls{" "}
+          <span className="text-white">poke</span> — the value written is read from the
+          book by the contract, not supplied by the caller, so a poke can only make the
+          average more accurate.
+          <br />
+          <br />
+          A mark read at one block is worth attacking for one block: push the book,
+          settle, unwind. An average over {blocks} means holding the book away from its
+          price for the whole window, against every resting order on it, paying the
+          spread both ways. The attack is not blocked — it is priced.
+        </p>
+      ) : (
+        <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+          This market settles on the book as it stands at the cutoff block.
+        </p>
+      )}
     </div>
   );
 }

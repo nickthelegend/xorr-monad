@@ -158,6 +158,50 @@ if (!configuredMicro) {
   check(price > b8 && price < a8, "and stays strictly inside the spread");
 }
 
+// ---- what the market actually settles on
+//
+// The sharpest question about settling a derivative on an order book is what stops
+// someone moving the book at the cutoff block. The answer is meant to be structural —
+// an average over many blocks rather than a reading at one — so it is asserted here
+// rather than described in a README.
+const [, , , , , , , twapWindow] = await pub.readContract({
+  address: deployment.kuruOracle,
+  abi: KuruOracleAbi,
+  functionName: "books",
+  args: [MON],
+});
+
+if (Number(twapWindow) === 0) {
+  console.log("\nsettles  on the mark at the cutoff block (no window configured)\n");
+} else {
+  const window = Number(twapWindow);
+  const blocks = Math.round((window * 1000) / 300);
+  const obs = await pub.readContract({
+    address: deployment.kuruOracle,
+    abi: KuruOracleAbi,
+    functionName: "obsCount",
+    args: [MON],
+  });
+  const avg = await pub.readContract({
+    address: deployment.kuruOracle,
+    abi: KuruOracleAbi,
+    functionName: "twap",
+    args: [MON, window],
+  });
+
+  console.log(
+    `\nsettles  on a ${window}s average (~${blocks} blocks) of the mark, ` +
+      `from ${obs} on-chain readings\n`,
+  );
+  check(Number(obs) >= 2, "the oracle has a history to average over", `${obs} readings`);
+  check(avg > 0n, "the average resolves to a price", `${avg}`);
+  check(
+    price === avg,
+    "and the price the market settles on IS that average, not the instant",
+    `${price}`,
+  );
+}
+
 // ---- depth decodes into a real ladder
 const [blockNumber, bidPx, bidSz, askPx] = await pub.readContract({
   address: deployment.kuruOracle,
@@ -196,13 +240,35 @@ check(
 );
 
 await tighten(500);
-const [restored] = await pub.readContract({
-  address: deployment.kuruOracle,
-  abi: KuruOracleAbi,
-  functionName: "latest",
-  args: [MON],
-});
-check(restored > 0n, "and reports it again once the guard is restored", `${restored}`);
+
+/**
+ * Recovery, not instant recovery.
+ *
+ * While the guard was refusing, `poke` had no valid mark to record, so the averaged
+ * mark's history stopped. Restoring the guard does not by itself restore a settleable
+ * price: the oracle refuses an average whose newest reading is stale, and it is right
+ * to — an average across a gap describes a book that was not being watched. What must
+ * be true is that it comes back once readings resume, which is what the keeper is for.
+ *
+ * A market configured on the instantaneous mark recovers on the next call, so this
+ * waits for either.
+ */
+let restored = 0n;
+for (let i = 0; i < 30; i++) {
+  [restored] = await pub.readContract({
+    address: deployment.kuruOracle,
+    abi: KuruOracleAbi,
+    functionName: "latest",
+    args: [MON],
+  });
+  if (restored > 0n) break;
+  await new Promise((r) => setTimeout(r, 500));
+}
+check(
+  restored > 0n,
+  "and prices again once the guard is lifted and readings resume",
+  `${restored}`,
+);
 
 console.log(
   failed === 0
