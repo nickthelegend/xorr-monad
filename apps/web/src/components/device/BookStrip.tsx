@@ -2,9 +2,22 @@
 
 import { useEffect, useState } from "react";
 
+interface Level {
+  price: number;
+  size: number;
+}
+
 interface Strip {
   configured: boolean;
-  onchain?: { bid: number; ask: number; mid: number; spreadBps: number; block: string };
+  onchain?: {
+    bid: number;
+    ask: number;
+    mid: number;
+    spreadBps: number;
+    block: string;
+    bids?: Level[];
+    asks?: Level[];
+  };
   health?: string;
   tradeable?: boolean;
   reason?: string;
@@ -27,7 +40,23 @@ const TONE: Record<string, string> = {
  * two taps away in a sheet. Bid, ask, spread and a one-word verdict is as much as fits
  * without crowding the price — the full ladder lives in the Kuru book sheet.
  */
-export function BookStrip({ onOpen }: { onOpen?: () => void }) {
+export function BookStrip({
+  onOpen,
+  bandHalfBps,
+}: {
+  onOpen?: () => void;
+  /**
+   * The painted band's WIDTH, in bps of its own centre — not its absolute prices.
+   *
+   * The demo desk's MON price starts at the real mark and then walks on replayed BTC
+   * returns, so by the time anyone looks it is somewhere the real book is not. Asking
+   * "how much rests between these two prices" against a live ladder would then be
+   * comparing a simulated band to a real book and reporting the answer as if it meant
+   * something. The width is the part that transfers: a band this tight, centred where
+   * the book actually is, has this much size behind it.
+   */
+  bandHalfBps?: number | null;
+}) {
   const [s, setS] = useState<Strip | null>(null);
   /**
    * A short history of the spread, kept client-side.
@@ -66,6 +95,24 @@ export function BookStrip({ onOpen }: { onOpen?: () => void }) {
 
   if (!s?.configured || !s.onchain) return null;
   const b = s.onchain;
+
+  /**
+   * How much size actually rests between the two edges the player painted.
+   *
+   * The band is drawn on a price axis and the book is a list of resting orders; until
+   * you add them up, the two are separate pictures. This is the number that joins them
+   * — and on a book this thin it is often small, which is the honest answer and the
+   * reason the market refuses some bands outright.
+   */
+  const inBand =
+    bandHalfBps && bandHalfBps > 0 && b.bids && b.asks && b.mid > 0
+      ? (() => {
+          const half = (b.mid * bandHalfBps) / 10_000;
+          return [...b.bids, ...b.asks]
+            .filter((l) => l.price >= b.mid - half && l.price <= b.mid + half)
+            .reduce((a, l) => a + l.size, 0);
+        })()
+      : null;
   const tone = TONE[s.health ?? ""] ?? "text-dim";
 
   return (
@@ -79,6 +126,28 @@ export function BookStrip({ onOpen }: { onOpen?: () => void }) {
         <span className={tone}>{(s.health ?? "").toUpperCase()}</span>
       </span>
       <span className="tnum flex items-center gap-2">
+        {inBand !== null ? (
+          /**
+           * Zero is the interesting answer, not the empty one.
+           *
+           * The mark is a midpoint, so it lives in the spread where by definition no
+           * orders rest. A band tighter than the half-spread therefore contains none —
+           * which tells the player something real about the book they are trading
+           * against, and "0" alone does not say it.
+           */
+          <span
+            className={inBand > 0 ? "text-amber" : "text-dim"}
+            title={
+              inBand > 0
+                ? `size resting within ±${((bandHalfBps ?? 0) / 100).toFixed(2)}% of the real mark — a band as tight as yours, centred where the book is`
+                : `a band this tight sits entirely inside the ${b.spreadBps} bps spread, where no orders rest`
+            }
+          >
+            {inBand > 0
+              ? `${inBand >= 1000 ? `${(inBand / 1000).toFixed(1)}k` : inBand.toFixed(0)} at your width`
+              : "inside the spread"}
+          </span>
+        ) : null}
         {spreads.length > 2 ? <SpreadSpark values={spreads} /> : null}
         <span className="text-green">{b.bid.toFixed(6)}</span>
         <span className="text-dim">/</span>

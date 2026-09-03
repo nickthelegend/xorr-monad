@@ -434,7 +434,18 @@ export function PlayScreen() {
         </div>
 
         {/* Kuru's book, on the deck, for the market XORR prices from it. */}
-        {state.market.key === "MON" ? <BookStrip onOpen={() => setSheet("menu")} /> : null}
+        {state.market.key === "MON" ? (
+          <BookStrip
+            onOpen={() => setSheet("menu")}
+            // The width, not the prices: the demo desk's MON price has walked away
+            // from the real mark, so only the shape of the band transfers.
+            bandHalfBps={
+              band.ready && band.band
+                ? Number(band.band.lowHalf1e4 + band.band.highHalf1e4) / 2 / 10_000
+                : null
+            }
+          />
+        ) : null}
 
         {/* --------------------------------------------- pays panel + fire key */}
         <div className="mt-2 flex gap-2">

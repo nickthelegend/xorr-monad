@@ -99,7 +99,22 @@ contract KuruOracle is IXorrOracle, Owned {
     event DepthFloorSet(bytes32 indexed marketId, uint32 bandBps, uint128 minDepth, uint8 levels);
     event MarkSet(bytes32 indexed marketId, Mark mark);
     event TwapWindowSet(bytes32 indexed marketId, uint32 seconds_);
-    event Poked(bytes32 indexed marketId, uint256 mark8, uint32 at);
+    /**
+     * @notice One recorded reading, with the book conditions it was taken under.
+     * @dev Emitted on every poke rather than only at settlements, which makes the
+     *      conditions of any settlement derivable from the pokes around its block —
+     *      and makes the ones between settlements visible too. A receipt written only
+     *      when it is needed is a receipt nobody can check against its neighbours.
+     */
+    event Poked(
+        bytes32 indexed marketId,
+        uint256 mark8,
+        uint32 at,
+        uint256 bid8,
+        uint256 ask8,
+        uint256 spreadBps,
+        uint256 depthNearMid
+    );
 
     error NoBook();
     error BadSpread();
@@ -187,6 +202,7 @@ contract KuruOracle is IXorrOracle, Owned {
         (uint256 mark8,) = _spot(b, marketId);
         if (mark8 == 0) return false;
 
+
         uint16 count = obsCount[marketId];
         uint16 idx = obsIndex[marketId];
         uint32 nowT = uint32(block.timestamp);
@@ -195,7 +211,7 @@ contract KuruOracle is IXorrOracle, Owned {
             _obs[marketId][0] = Obs({t: nowT, cum: 0});
             obsIndex[marketId] = 0;
             obsCount[marketId] = 1;
-            emit Poked(marketId, mark8, nowT);
+            _emitPoked(b, marketId, mark8, nowT);
             return true;
         }
 
@@ -209,8 +225,29 @@ contract KuruOracle is IXorrOracle, Owned {
         obsIndex[marketId] = next;
         if (count < CARDINALITY) obsCount[marketId] = count + 1;
 
-        emit Poked(marketId, mark8, nowT);
+        _emitPoked(b, marketId, mark8, nowT);
         return true;
+    }
+
+    /**
+     * @dev The conditions a reading was taken under, emitted alongside it.
+     *
+     *      Its own function because `poke` runs out of stack otherwise — and because
+     *      the two callers there record the same thing and should not drift apart.
+     */
+    function _emitPoked(Book memory b, bytes32 marketId, uint256 mark8, uint32 at) internal {
+        (uint256 rawBid, uint256 rawAsk) = b.market.bestBidAsk();
+        uint256 spreadBps =
+            (rawBid + rawAsk) == 0 ? 0 : ((rawAsk - rawBid) * BPS * 2) / (rawBid + rawAsk);
+        emit Poked(
+            marketId,
+            mark8,
+            at,
+            rawBid / SCALE_DOWN,
+            rawAsk / SCALE_DOWN,
+            spreadBps,
+            b.minDepth == 0 ? 0 : depthNearMid(marketId)
+        );
     }
 
     /**
