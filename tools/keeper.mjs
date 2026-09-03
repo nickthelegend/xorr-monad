@@ -358,17 +358,28 @@ async function pokeLoop() {
   if (KURU_ORACLE && !poking) {
     poking = true;
     try {
-      const hash = await wallet.writeContract({
+      /**
+       * Send, and do not wait for the receipt before scheduling the next one.
+       *
+       * Waiting made confirmation latency the cadence: one poke whose receipt took
+       * five seconds pushed the next poke five and a half seconds out, and the oracle
+       * refuses an average whose newest reading is older than its tolerance. Measured
+       * over 260 observations there was exactly one such gap — six seconds — and during
+       * it the market could not settle at all. The guard was right; the cadence was
+       * wrong. A poke that is slow to confirm is still a poke that was sent on time.
+       *
+       * Single-flight is kept so two sends cannot race for a nonce.
+       */
+      await wallet.writeContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "poke",
         args: [MON_ID],
       });
-      await pub.waitForTransactionReceipt({ hash });
       pokes++;
-      if (pokes % 60 === 1) log("poked", { market: "MON", pokes });
+      if (pokes % 120 === 1) log("poked", { market: "MON", pokes });
     } catch (e) {
-      if (pokes % 60 === 1) log("poke_failed", { error: String(e).slice(0, 160) });
+      if (pokes % 120 === 1) log("poke_failed", { error: String(e).slice(0, 160) });
       pokes++;
     }
     poking = false;
