@@ -23,6 +23,11 @@ interface Props {
   multiplierBps: bigint;
   /** 0..1 — how far the live round has burned toward its cutoff. */
   progress: number;
+  /**
+   * The price a ticket just settled at, and whether it won. Drawn as a ring expanding
+   * from that point on the price axis, then cleared by the parent.
+   */
+  settleFlash?: { price: bigint; won: boolean; at: number } | null;
   /** Bands of tickets already open, drawn behind the live one. */
   openBands?: { low: bigint; high: bigint; won?: boolean }[];
   onDragEdge?: (side: "low" | "high", half1e4: bigint) => void;
@@ -41,6 +46,7 @@ export function RangeChart({
   high,
   multiplierBps,
   progress,
+  settleFlash = null,
   openBands = [],
   onDragEdge,
 }: Props) {
@@ -48,6 +54,31 @@ export function RangeChart({
   const wrap = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 330, h: 250 });
   const drag = useRef<"low" | "high" | null>(null);
+
+  /**
+   * Frames, but only while a settlement ring is expanding.
+   *
+   * The canvas otherwise redraws when its data changes, which on a 300ms chain is about
+   * three times inside the ring's 620ms — enough to see it step outward and not enough
+   * to see it move. This drives frames for exactly as long as the ring is alive and then
+   * stops, rather than running a render loop for a chart that is static most of the time.
+   */
+  const [, setFrame] = useState(0);
+  useEffect(() => {
+    if (!settleFlash) return;
+    let raf = 0;
+    let live = true;
+    const tick = () => {
+      if (!live) return;
+      setFrame((n) => n + 1);
+      if (Date.now() - settleFlash.at < 700) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      live = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [settleFlash]);
 
   useEffect(() => {
     const el = wrap.current;
@@ -168,6 +199,29 @@ export function RangeChart({
       g.fillRect(nowX, yHigh, (W - nowX) * Math.min(1, progress), yLow - yHigh);
     }
 
+    /**
+     * The settlement, expanding from the point it printed at.
+     *
+     * A settled round currently announces itself with a word in the corner, which is
+     * the one place the eye is not — it is on the band, watching whether the price is
+     * inside it. The ring starts at the print and grows outward, so the answer arrives
+     * where the question was being asked.
+     */
+    if (settleFlash) {
+      const age = (Date.now() - settleFlash.at) / 620;
+      if (age >= 0 && age <= 1) {
+        const cy = y(Number(settleFlash.price));
+        const r = 6 + age * 46;
+        g.beginPath();
+        g.arc(nowX, cy, r, 0, Math.PI * 2);
+        g.strokeStyle = settleFlash.won
+          ? `rgba(61,220,132,${(1 - age) * 0.85})`
+          : `rgba(232,69,60,${(1 - age) * 0.85})`;
+        g.lineWidth = 2;
+        g.stroke();
+      }
+    }
+
     // ---- the live dot
     g.fillStyle = C.amber;
     g.beginPath();
@@ -192,7 +246,7 @@ export function RangeChart({
     g.textAlign = "right";
     g.fillText(`NEXT ${fmtMultiplier(multiplierBps)}`, W - 4, 12);
     g.textAlign = "left";
-  }, [history, size, spot, low, high, market, multiplierBps, progress, openBands, scale]);
+  }, [history, size, spot, low, high, market, multiplierBps, progress, settleFlash, openBands, scale]);
 
   // Dragging either amber rule repaints the band.
   const half1e4From = (clientY: number, side: "low" | "high") => {

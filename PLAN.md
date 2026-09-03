@@ -281,7 +281,7 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 |---|---|---|---|
 | 8.10 | #27 | **Rooms UI.** `RoomMarket` is deployed and has 12 passing tests, but `roomMarket` is read in `chain.ts` and used nowhere. An entire working contract is unreachable from the product. | DONE — create, join by code, lobby and settle, all real transactions. Verified live: room `3LE74` opened by one account and joined by another, pot $5 → $10, both bands on screen, and the vault's reserved stayed at 0 throughout |
 | 8.11 | #37 | Keyboard shortcuts in live mode. `PlayScreen` binds `keydown`; `LiveConsole` binds none. | DONE — `a`/Enter fires, `[` and `]` walk the band, matching the demo desk. Verified live: 1.59x → 1.39x on widening, → 1.91x on tightening |
-| 8.12 | #38 | Touch drag for band edges on mobile | NOT STARTED |
+| 8.12 | #38 | Touch drag for band edges on mobile | DONE — already correct: pointer events with `touchAction: none`. Verified with a real `pointerType: 'touch'` drag on the band edge, 1.28x → 1.38x |
 | 8.13 | #35/#36 | Shareable ticket permalink and a per-ticket OG card | NOT STARTED |
 | 8.14 | #40/#41 | Settle any due ticket you can see, and batch-settle from the UI via `settleBatch` | NOT STARTED |
 | 8.15 | #39 | One-tap "repeat last band" | DONE — AGAIN restores the last accepted shape, clamped to the limits as they stand now. Verified: 1.66x → widened 1.30x → AGAIN → 1.66x |
@@ -293,11 +293,11 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 
 | # | Idea | Task | Status |
 |---|---|---|---|
-| 8.19 | #52 | Settlement flash expanding from the print point on the chart | NOT STARTED |
-| 8.20 | #58 | Band box burning down toward the cutoff, tied to real block progress | IN PROGRESS — the overlay exists and tracks the nearest ticket; the burn itself is not animated |
+| 8.19 | #52 | Settlement flash expanding from the print point on the chart | DONE — a ring expanding from the print, drawn on the chart where the eye already is rather than as a word in a corner. Verified: ring pixels 269 → 635 through a settlement |
+| 8.20 | #58 | Band box burning down toward the cutoff, tied to real block progress | DONE — verified against real block progress: ring 329 → 282 blocks while the fill advanced across the projection |
 | 8.21 | #59 | Shake on rejection (band too tight / no funds) | IN PROGRESS — wired into the refusal branch and the CSS resolves (`shake`, 260ms), but I could not observe the motion: the browser pane throttles animation while hidden, and a refusal is hard to reach on purpose now that the painter cannot offer an illegal band. Needs one human look |
-| 8.22 | #57 | Odometer roll on the price rather than a jump | NOT STARTED |
-| 8.23 | #64 | Boot-sequence loading state instead of a spinner | NOT STARTED |
+| 8.22 | #57 | Odometer roll on the price rather than a jump | DONE — only the digits that changed move, 180ms, shorter than a block so the readout is never still catching up. Verified: exactly one column mid-roll across a price change |
+| 8.23 | #64 | Boot-sequence loading state instead of a spinner | DONE — three real steps, then the tape fetch with a cursor. If it stalls, the last line printed is where it stalled, which a spinner cannot say |
 | 8.24 | #72 | Real error boundary around **each sheet**. Only `Console3D` has one today. | DONE — one boundary inside `Sheet`, so it covers every screen rather than each call site remembering. Names the screen and the error instead of 'something went wrong' |
 | 8.25 | #73 | Offline detection with an honest banner | DONE — one banner on the real offline/online events. Verified: appears on `offline`, clears on `online`. Offline, three individually-correct error messages read as three outages of three systems when the fact is one |
 | 8.26 | #85 | Mobile viewport correctness at 375px — verify, do not assume | DONE — verified at 375x812 against the public deployment, not assumed: no horizontal overflow, no element past the viewport, the round selector not clipped |

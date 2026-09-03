@@ -23,6 +23,8 @@ import { BlueKey, CoinKey, CoinStack, DeckKey, FireKey } from "./device/Controls
 import { BookStrip } from "./device/BookStrip";
 import { HouseBattery } from "./device/HouseBattery";
 import { CutoffRing } from "./device/CutoffRing";
+import { Odometer } from "@/components/device/Odometer";
+import { BootSequence } from "@/components/device/BootSequence";
 import { MenuSheet } from "./menu/MenuSheet";
 import { HowToSheet } from "./menu/HowToSheet";
 import { LiveConsole } from "./LiveConsole";
@@ -154,9 +156,19 @@ export function PlayScreen() {
   }, [nearest, state.block]);
 
   // Announce settlements on the screen the way the console would.
+  /** The settlement ring on the chart, cleared once its animation has run. */
+  const [settleFlash, setSettleFlash] = useState<
+    { price: bigint; won: boolean; at: number } | null
+  >(null);
+
   useEffect(() => {
     const t = state.lastSettled;
     if (!t || t.status === "open") return;
+    if (t.settledPrice !== null && !reducedMotion) {
+      setSettleFlash({ price: t.settledPrice, won: t.status === "won", at: Date.now() });
+      // Long enough for the 620ms expansion, then gone so it cannot re-draw later.
+      setTimeout(() => setSettleFlash(null), 700);
+    }
     setFlash({
       kind: t.status === "won" ? "won" : "lost",
       text: t.status === "won" ? `+${fmtUsd(t.payout - t.stake)}` : `−${fmtUsd(t.stake)}`,
@@ -168,7 +180,7 @@ export function PlayScreen() {
     );
     const id = setTimeout(() => setFlash(null), 1400);
     return () => clearTimeout(id);
-  }, [state.lastSettled]);
+  }, [state.lastSettled, reducedMotion]);
 
   const doFire = useCallback(() => {
     const r = fire(band.low, band.high, stake);
@@ -278,7 +290,14 @@ export function PlayScreen() {
             <div>
               <div className="label">Range · {state.market.symbol}</div>
               <div className="tnum mt-1 text-[30px] font-bold leading-none text-white">
-                {state.ready ? fmtPrice(state.spot, state.market.dp) : "—"}
+                {state.ready ? (
+                  <Odometer
+                    value={fmtPrice(state.spot, state.market.dp)}
+                    reducedMotion={reducedMotion}
+                  />
+                ) : (
+                  "—"
+                )}
               </div>
             </div>
             {/* The nearest open ticket's remaining blocks, if there is one. */}
@@ -321,13 +340,15 @@ export function PlayScreen() {
 
           <div className="relative mt-3 h-[228px]">
             {!state.ready ? (
-              <div className="grid h-full place-items-center px-6 text-center">
-                <span className="label leading-relaxed">
-                  {state.priceError
-                    ? `no ${state.market.symbol} price: ${state.priceError}`
-                    : `fetching the real ${state.market.symbol} price`}
-                </span>
-              </div>
+              state.priceError ? (
+                <div className="grid h-full place-items-center px-6 text-center">
+                  <span className="label leading-relaxed">
+                    no {state.market.symbol} price: {state.priceError}
+                  </span>
+                </div>
+              ) : (
+                <BootSequence symbol={state.market.symbol} />
+              )
             ) : (
             <RangeChart
               market={state.market}
@@ -337,6 +358,7 @@ export function PlayScreen() {
               high={band.high}
               multiplierBps={band.multiplierBps}
               progress={reducedMotion ? 0 : progress}
+              settleFlash={settleFlash}
               openBands={state.openTickets.map((t) => ({
                 low: t.low,
                 high: t.high,
