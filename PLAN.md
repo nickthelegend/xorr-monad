@@ -105,7 +105,7 @@ essentially complete**; the work that remains is concentrated in **Phases 5–8*
 | 5 | **Judgeability — deploy, record, verify** | DONE except the recording (5.5) and a public *chain* deploy (5.3/5.4), both blocked for stated reasons |
 | 6 | **Solvency hardening and operations** | DONE |
 | 7 | Documentation truth pass | DONE |
-| 8 | Depth items — remaining ranked ideas | IN PROGRESS — the order-book items and the unreachable contract are done; the motion/polish tail is not |
+| 8 | Depth items — remaining ranked ideas | DONE except #18/#19/#20, which need a second liquid Kuru market to exist |
 
 ---
 
