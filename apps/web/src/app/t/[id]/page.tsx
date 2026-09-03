@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createPublicClient, defineChain, http, type Address } from "viem";
-import { RangeMarketAbi } from "@xorr/sdk";
+import { KuruOracleAbi, MARKETS, RangeMarketAbi } from "@xorr/sdk";
 
 /**
  * One ticket, by id, readable by anyone.
@@ -18,6 +18,9 @@ export const dynamic = "force-dynamic";
 const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 143);
 const RPC = process.env.RPC_UPSTREAM ?? "https://rpc.monad.xyz";
 const RANGE = process.env.NEXT_PUBLIC_RANGE_MARKET as Address | undefined;
+const KURU_ORACLE = process.env.NEXT_PUBLIC_KURU_ORACLE as Address | undefined;
+/** keccak256("MON-USD") */
+const MON_ID = "0x92bcb7355458a976a0b6be05319d37cc66bc1792624ca67226af747c1de28f62" as const;
 
 const STATUS = ["open", "won", "lost", "void"] as const;
 
@@ -46,8 +49,71 @@ async function readTicket(id: bigint) {
   }
 }
 
+/**
+ * The book as it stood at the block this ticket settled on.
+ *
+ * The receipt is only a receipt if the conditions are on it. A settled price with no
+ * book behind it asks the reader to trust that the number was reasonable; the touch and
+ * the spread at that exact block let them decide for themselves. Read with the same
+ * contract call the oracle uses, at a block tag — nothing is stored for this.
+ *
+ * Only meaningful for the market priced from the book, and only where an archive node
+ * still has that state. Absent is absent; it is not filled in with the current book.
+ */
+async function bookAtSettlement(
+  pub: ReturnType<typeof createPublicClient>,
+  marketId: string,
+  atBlock: bigint,
+) {
+  if (!KURU_ORACLE || marketId.toLowerCase() !== MON_ID) return null;
+  try {
+    const [bid, ask, mid, spreadBps] = (await pub.readContract({
+      address: KURU_ORACLE,
+      abi: KuruOracleAbi,
+      functionName: "quoteTop",
+      blockNumber: atBlock,
+      args: [MON_ID],
+    })) as readonly [bigint, bigint, bigint, bigint];
+    if (mid === 0n) return null;
+    return { bid, ask, mid, spreadBps: Number(spreadBps) };
+  } catch {
+    return null;
+  }
+}
+
 const usd = (v: bigint) => `$${(Number(v) / 1e6).toFixed(2)}`;
-const px = (v: bigint) => (Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 2 });
+/**
+ * Prices at the market's own precision.
+ *
+ * Two decimals is right for BTC at seventy-seven thousand and destroys MON at two and
+ * a half cents — this page rendered a whole ticket's band as "0.03 – 0.03", which is
+ * not a rounding annoyance but a receipt that says nothing. Each market already carries
+ * the number of decimals it should be read at.
+ */
+const dpOf = (marketId: string) =>
+  MARKETS.find((m) => m.marketId.toLowerCase() === marketId.toLowerCase())?.dp ?? 2;
+
+const px = (v: bigint, dp: number) =>
+  (Number(v) / 1e8).toLocaleString("en-US", {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  });
+
+/**
+ * Enough decimals to tell the two edges apart.
+ *
+ * A market's display precision is chosen for reading a price, not for reading a band,
+ * and the tightest bands are narrower than it — MON's is five decimals while its venue
+ * quotes six, so a real 0.8 bps band rendered as "0.02519 – 0.02519". A receipt whose
+ * two numbers are the same number is not a receipt. Widen until they differ, and never
+ * narrow below the market's own setting.
+ */
+function bandDp(low: bigint, high: bigint, dp: number): number {
+  for (let d = dp; d <= 8; d++) {
+    if (px(low, d) !== px(high, d)) return d;
+  }
+  return 8;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -82,6 +148,19 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
     );
   }
 
+  const chain = defineChain({
+    id: CHAIN_ID,
+    name: "monad",
+    nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
+    rpcUrls: { default: { http: [RPC] } },
+  });
+  const book = await bookAtSettlement(
+    createPublicClient({ chain, transport: http(RPC) }),
+    t.marketId,
+    BigInt(t.expiryBlock),
+  );
+
+  const dp = dpOf(t.marketId);
   const status = STATUS[t.status] ?? "open";
   const won = status === "won";
   const tone = won ? "text-green" : status === "lost" ? "text-red" : "text-white/70";
@@ -100,13 +179,27 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
         </div>
 
         <div className="mono mt-5 space-y-2 text-[12px]">
-          <Row k="Band" v={`${px(t.low)} – ${px(t.high)}`} />
+          <Row k="Band" v={`${px(t.low, bandDp(t.low, t.high, dp))} – ${px(t.high, bandDp(t.low, t.high, dp))}`} />
           <Row k="Stake" v={usd(t.stake)} />
           <Row k="Multiplier" v={`${(t.multiplierBps / 10_000).toFixed(2)}x`} />
           <Row k="Cutoff block" v={t.expiryBlock.toLocaleString()} />
-          {t.settledPrice > 0n ? <Row k="Printed at" v={px(t.settledPrice)} /> : null}
+          {t.settledPrice > 0n ? <Row k="Printed at" v={px(t.settledPrice, dp)} /> : null}
           <Row k="Owner" v={`${t.player.slice(0, 6)}…${t.player.slice(-4)}`} />
         </div>
+
+        {book ? (
+          <div className="mt-5 rounded-xl bg-[#0d0d0d] p-3">
+            <div className="label">The book at that block</div>
+            <div className="mono mt-2 space-y-2 text-[12px]">
+              <Row k="Touch" v={`${px(book.bid, dp)} / ${px(book.ask, dp)}`} />
+              <Row k="Spread" v={`${book.spreadBps} bps`} />
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-white/35">
+              Read back from the chain at block {t.expiryBlock.toLocaleString()} with the
+              same call the oracle makes — nothing was stored for this.
+            </p>
+          </div>
+        ) : null}
 
         <p className="mt-5 text-[11px] leading-relaxed text-white/40">
           Read from the market contract on chain {CHAIN_ID}, not from a database. The

@@ -41,6 +41,8 @@ interface Book {
     down: { reachable: boolean; size: number; notional: number; levels: number };
     targetBps: number;
   } | null;
+  /** Whether the touch actually moved across the settlement window. */
+  windowMove?: { fromBid: number; fromAsk: number; movedBps: number; blocks: number } | null;
   /** Set when this response is a past block rather than the head. */
   replayOf?: string | null;
   /** The same asset on a centralised book, for scale. */
@@ -277,7 +279,7 @@ export function OrderBook() {
 
       {b.marks ? <WhyThisPrice book={book} /> : null}
 
-      {b.marks ? <SettlementWindow marks={b.marks} /> : null}
+      {b.marks ? <SettlementWindow marks={b.marks} move={book.windowMove ?? null} /> : null}
 
       {book.manipulation ? (
         <MoveCost m={book.manipulation} window={b.marks?.twapWindow ?? 0} />
@@ -646,8 +648,10 @@ function Basis({ basis }: { basis: NonNullable<Book["basis"]> }) {
  */
 function SettlementWindow({
   marks,
+  move,
 }: {
   marks: NonNullable<NonNullable<Book["onchain"]>["marks"]>;
+  move: Book["windowMove"];
 }) {
   const blocks = Math.round((marks.twapWindow * 1000) / 300);
   return (
@@ -676,6 +680,39 @@ function SettlementWindow({
           This market settles on the book as it stands at the cutoff block.
         </p>
       )}
+
+      {/*
+        * The honest companion to the claim above.
+        *
+        * "One block cannot move the average" is worth saying, and worth saying next to
+        * whether the book moved at all over the window. A settlement taken across a
+        * still book and one taken across a genuine move are different situations, and
+        * only showing the first would be choosing the flattering half.
+        */}
+      {move ? (
+        <div className="mono mt-3 flex items-baseline justify-between gap-3 rounded-xl bg-[#0d0d0d] p-3 text-[10px] tracking-[0.08em]">
+          <span className="text-dim">
+            TOUCH {move.blocks} BLOCKS AGO
+          </span>
+          <span className="tnum text-white/70">
+            {px(move.fromBid)} / {px(move.fromAsk)}
+            <span
+              className={
+                Math.abs(move.movedBps) < 1
+                  ? " text-dim"
+                  : move.movedBps > 0
+                    ? " text-green"
+                    : " text-red"
+              }
+            >
+              {" · "}
+              {Math.abs(move.movedBps) < 1
+                ? "unchanged"
+                : `${move.movedBps > 0 ? "+" : ""}${move.movedBps.toFixed(1)} bps`}
+            </span>
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

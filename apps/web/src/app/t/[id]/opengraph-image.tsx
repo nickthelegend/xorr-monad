@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { createPublicClient, defineChain, http, type Address } from "viem";
-import { RangeMarketAbi } from "@xorr/sdk";
+import { MARKETS, RangeMarketAbi } from "@xorr/sdk";
 
 /**
  * The card for one ticket, drawn from the chain at request time.
@@ -18,7 +18,14 @@ const RPC = process.env.RPC_UPSTREAM ?? "https://rpc.monad.xyz";
 const RANGE = process.env.NEXT_PUBLIC_RANGE_MARKET as Address | undefined;
 
 const usd = (v: bigint) => `$${(Number(v) / 1e6).toFixed(2)}`;
-const px = (v: bigint) => (Number(v) / 1e8).toLocaleString("en-US", { maximumFractionDigits: 2 });
+/** Each market at its own precision; two decimals turns a MON band into "0.03 – 0.03". */
+const dpOf = (marketId: string) =>
+  MARKETS.find((m) => m.marketId.toLowerCase() === marketId.toLowerCase())?.dp ?? 2;
+const px = (v: bigint, dp: number) =>
+  (Number(v) / 1e8).toLocaleString("en-US", {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  });
 
 export default async function TicketCard({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -81,9 +88,11 @@ export default async function TicketCard({ params }: { params: Promise<{ id: str
           </div>
           {t ? (
             <div style={{ color: "#8a8a8a", fontSize: 30, display: "flex" }}>
-              {px(t.low)} – {px(t.high)} · {usd(t.stake)} at{" "}
-              {(t.multiplierBps / 10_000).toFixed(2)}x
-              {t.settledPrice > 0n ? ` · printed ${px(t.settledPrice)}` : ""}
+              {px(t.low, dpOf(t.marketId))} – {px(t.high, dpOf(t.marketId))} ·{" "}
+              {usd(t.stake)} at {(t.multiplierBps / 10_000).toFixed(2)}x
+              {t.settledPrice > 0n
+                ? ` · printed ${px(t.settledPrice, dpOf(t.marketId))}`
+                : ""}
             </div>
           ) : null}
         </div>

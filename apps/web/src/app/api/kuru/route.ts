@@ -425,6 +425,46 @@ export async function GET(req: Request) {
      * midpoint by design.
      */
     const [, , , minDepth, , markEnum, , twapWindow] = cfg;
+    const twapWindowRaw = twapWindow;
+
+    /**
+     * Did the touch move across the settlement window?
+     *
+     * The averaged mark's whole argument is that one block cannot move it. The honest
+     * companion to that claim is showing when the book DID move over the window — a
+     * settlement taken across a genuine move is a different thing from one taken across
+     * a still book, and only one of them is worth arguing about.
+     *
+     * Read at the block the window started, with the same call. Failing is not fatal:
+     * a node without that block's state simply means the comparison is unavailable.
+     */
+    let windowMove: { fromBid: number; fromAsk: number; movedBps: number; blocks: number } | null =
+      null;
+    const windowBlocks = Math.round((Number(twapWindowRaw) * 1000) / 300);
+    if (windowBlocks > 0 && bookBlock > BigInt(windowBlocks)) {
+      try {
+        const then = (await pub.readContract({
+          address: KURU_ORACLE,
+          abi: KuruOracleAbi,
+          functionName: "quoteTop",
+          blockNumber: bookBlock - BigInt(windowBlocks),
+          args: [MON_ID],
+        })) as readonly [bigint, bigint, bigint, bigint];
+        const thenMid = Number(then[2]) / 1e8;
+        const nowMid = Number(mid8) / 1e8;
+        if (thenMid > 0) {
+          windowMove = {
+            fromBid: Number(then[0]) / 1e8,
+            fromAsk: Number(then[1]) / 1e8,
+            movedBps: ((nowMid - thenMid) / thenMid) * 10_000,
+            blocks: windowBlocks,
+          };
+        }
+      } catch {
+        windowMove = null;
+      }
+    }
+
     const mark = markEnum === 1 ? ("MICRO" as const) : ("MID" as const);
     const dustFloorRaw = minDepth / 20n;
     const microGuarded =
@@ -468,6 +508,8 @@ export async function GET(req: Request) {
         },
         // Which oracle the market is routed to, read from the router at this block.
         routed,
+        // Whether the book actually moved across the settlement window.
+        windowMove,
         /**
          * What it would cost to move the mark by 1%, walked from this ladder.
          *
