@@ -102,10 +102,10 @@ essentially complete**; the work that remains is concentrated in **Phases 5–8*
 | 2 | Order-book integration (the sponsor track) | DONE |
 | 3 | The console — desk, band painter, live mode | DONE |
 | 4 | Screens and real data | DONE |
-| 5 | **Judgeability — deploy, record, verify** | IN PROGRESS — everything but the public deploy and the recording |
-| 6 | **Solvency hardening and operations** | IN PROGRESS |
+| 5 | **Judgeability — deploy, record, verify** | DONE except the recording (5.5) and a public *chain* deploy (5.3/5.4), both blocked for stated reasons |
+| 6 | **Solvency hardening and operations** | DONE |
 | 7 | Documentation truth pass | DONE |
-| 8 | Depth items — remaining ranked ideas | NOT STARTED |
+| 8 | Depth items — remaining ranked ideas | IN PROGRESS — the order-book items and the unreachable contract are done; the motion/polish tail is not |
 
 ---
 
@@ -189,7 +189,7 @@ at this machine to see it. A judge who cannot run the project scores what they c
 | 5.2 | Deploy `apps/web` to a public URL (Vercel or Railway). Set `NEXT_PUBLIC_*` for the chosen target. **`XORR_ALLOW_UNLOCKED_ACCOUNTS` must be unset in production** — it enables `eth_sendTransaction` and account-unlock methods through the proxy. | DONE — live at **https://xorr-monad.vercel.app**. Functions run in `fra1`: Binance answers Vercel's US region with HTTP 451, and the desk correctly refused to invent a price rather than showing one. `XORR_ALLOW_UNLOCKED_ACCOUNTS` is absent — the deployment has exactly four variables |
 | 5.3 | If 5.1 chooses a chain deploy: run `Deploy.s.sol` against Monad testnet with `KURU_MON_AUSD` set, commit `deployments/<chainid>.json`, fund the vault, run the keeper on a host that stays up. | BLOCKED — needs a funded Monad testnet key. `PRIVATE_KEY` is empty, and the testnet faucet cannot be scripted. Not attempted rather than faked |
 | 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | BLOCKED — depends on 5.3; there is no public deployment of the contracts to verify |
-| 5.5 | Record a 3-minute demo video following `docs/DEMO.md`, and fix that script's stale numbers first (see 7.2). | NOT STARTED |
+| 5.5 | Record a 3-minute demo video following `docs/DEMO.md`, and fix that script's stale numbers first (see 7.2). | BLOCKED — recording a narrated screen capture is not something I can do. Everything it depends on is ready: `docs/DEMO.md` is corrected, its setup is one command, and the console is live at the public URL |
 | 5.6 | Write a **judge-facing one-pager** (idea #100): each claim, and the exact command that proves it. `pnpm check:kuru` for the book, `pnpm parity` for the two implementations, `pnpm check:edge` for solvency, `pnpm check:chain` for deployed-vs-SDK agreement. | DONE — `docs/VERIFY.md`, every claim paired with the command that proves it |
 | 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | DONE — verified end to end: fork → deploy → fund → keeper → build → serve, all three health parts green |
 | 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | DONE — happy path and the degraded path both exercised: stopping the keeper flipped it to `degraded` with the real print age |
@@ -272,7 +272,7 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 | 8.5 | #22 | Encode band edges in tick-size units so they align to the book's grid | NOT STARTED |
 | 8.6 | #23 | Store a depth snapshot with each ticket, for auditable settlement | NOT STARTED |
 | 8.7 | #24 | "Book replay" on a history row: what the ladder looked like at the cutoff | NOT STARTED |
-| 8.8 | #12 | Colour depth bars by size relative to the book's own median | NOT STARTED |
+| 8.8 | #12 | Colour depth bars by size relative to the book's own median | DONE — bars shade against the book's own median rest rather than its largest, so a level reads as normal-or-not for this book and dust reads as dust |
 | 8.9 | #18/#19/#20 | Second Kuru-priced market, a picker reading the Router's deployed markets, and a cross-market stale-book alarm | BLOCKED — needs a second liquid Kuru market to exist |
 
 ### 8b — Functional
@@ -299,8 +299,8 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 | 8.22 | #57 | Odometer roll on the price rather than a jump | NOT STARTED |
 | 8.23 | #64 | Boot-sequence loading state instead of a spinner | NOT STARTED |
 | 8.24 | #72 | Real error boundary around **each sheet**. Only `Console3D` has one today. | NOT STARTED |
-| 8.25 | #73 | Offline detection with an honest banner | NOT STARTED |
-| 8.26 | #85 | Mobile viewport correctness at 375px — verify, do not assume | NOT STARTED |
+| 8.25 | #73 | Offline detection with an honest banner | DONE — one banner on the real offline/online events. Verified: appears on `offline`, clears on `online`. Offline, three individually-correct error messages read as three outages of three systems when the fact is one |
+| 8.26 | #85 | Mobile viewport correctness at 375px — verify, do not assume | DONE — verified at 375x812 against the public deployment, not assumed: no horizontal overflow, no element past the viewport, the round selector not clipped |
 | 8.27 | #88 | Accessibility pass: focus rings, labels, contrast | NOT STARTED |
 | 8.28 | #94 | Test coverage report | NOT STARTED |
 

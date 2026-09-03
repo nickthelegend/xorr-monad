@@ -142,6 +142,8 @@ export function OrderBook() {
   const asks = [...b.asks].slice(0, 7).reverse();
   const bids = b.bids.slice(0, 7);
   const maxSize = Math.max(1, ...b.asks.map((l) => l.size), ...b.bids.map((l) => l.size));
+  const sizes = [...b.bids, ...b.asks].map((l) => l.size).sort((x, y) => x - y);
+  const medianSize = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0;
   const health = HEALTH[book.health ?? ""] ?? { tone: "text-dim", label: "—" };
 
   return (
@@ -201,7 +203,7 @@ export function OrderBook() {
         </div>
 
         {asks.map((l, i) => (
-          <Row key={`a${i}`} level={l} max={maxSize} side="ask" />
+          <Row key={`a${i}`} level={l} max={maxSize} median={medianSize} side="ask" />
         ))}
 
         <div className="flex items-center justify-between border-y border-white/10 bg-[#161616] px-3 py-2">
@@ -210,7 +212,7 @@ export function OrderBook() {
         </div>
 
         {bids.map((l, i) => (
-          <Row key={`b${i}`} level={l} max={maxSize} side="bid" />
+          <Row key={`b${i}`} level={l} max={maxSize} median={medianSize} side="bid" />
         ))}
       </div>
       )}
@@ -275,10 +277,40 @@ export function OrderBook() {
   );
 }
 
-function Row({ level, max, side }: { level: Level; max: number; side: "bid" | "ask" }) {
+/**
+ * Depth bars shaded against this book's OWN median rest, not against its largest.
+ *
+ * Scaling to the maximum makes every ordinary level look small next to one whale, which
+ * is the opposite of what the reader needs — the question is "is this level normal for
+ * this book", and only the median answers it. It is also what makes a dust order
+ * visible as dust rather than as a very short bar.
+ */
+function Row({
+  level,
+  max,
+  median,
+  side,
+}: {
+  level: Level;
+  max: number;
+  median: number;
+  side: "bid" | "ask";
+}) {
   const pct = Math.max(2, (level.size / max) * 100);
+  const heat = median > 0 ? level.size / median : 1;
   const tone = side === "bid" ? "text-green" : "text-red";
-  const bar = side === "bid" ? "bg-green/15" : "bg-red/15";
+  const bar =
+    heat >= 1.5
+      ? side === "bid"
+        ? "bg-green/35"
+        : "bg-red/35"
+      : heat >= 0.5
+        ? side === "bid"
+          ? "bg-green/18"
+          : "bg-red/18"
+        : side === "bid"
+          ? "bg-green/8"
+          : "bg-red/8";
   return (
     <div className="relative flex items-center justify-between px-3 py-[7px]">
       {/* Depth as width, so relative size is readable without reading a number. */}

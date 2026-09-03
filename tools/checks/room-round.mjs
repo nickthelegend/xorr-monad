@@ -55,16 +55,33 @@ const half = (spot * maxH) / 100_000_000n;
 const aLow = spot - half, aHigh = spot + half;
 const bLow = spot + half / 2n, bHigh = spot + half * 2n;
 
-const code = toHex("XORR0001", { size: 8 });
+/**
+ * A fresh code each run.
+ *
+ * Room codes are unique on-chain, so a fixed one made this check work exactly once and
+ * then fail with a raw CodeTaken() revert — on a chain that persists, which the fork
+ * does. A check a reader is told to run has to survive being run twice.
+ */
+const codeText = `XR${Date.now().toString(36).toUpperCase().slice(-6)}`;
+const code = toHex(codeText, { size: 8 });
 const vaultBefore = await pub.readContract({ address: d.vault, abi: VaultAbi, functionName: "totalAssets" });
 const reservedBefore = await pub.readContract({ address: d.vault, abi: VaultAbi, functionName: "reserved" });
+/**
+ * The contract's balance BEFORE this round, not zero.
+ *
+ * Asserting the room market holds nothing afterwards is only true on a chain where no
+ * other room is open — which stopped being true the moment the console could open one.
+ * What this check actually knows is that ITS round closes out, so it measures the
+ * delta and leaves other people's open pots alone.
+ */
+const roomBefore = await pub.readContract({ address: d.ausd, abi: ERC20, functionName: "balanceOf", args: [d.roomMarket] });
 const aBefore = await pub.readContract({ address: d.ausd, abi: ERC20, functionName: "balanceOf", args: [alice.address] });
 const bBefore = await pub.readContract({ address: d.ausd, abi: ERC20, functionName: "balanceOf", args: [bob.address] });
 
 let h = await wa.writeContract({ address: d.roomMarket, abi: RoomAbi, functionName: "createRoom", args: [code, BTC, STAKE, 100, 4, aLow, aHigh] });
 await pub.waitForTransactionReceipt({ hash: h });
 const id = await pub.readContract({ address: d.roomMarket, abi: RoomAbi, functionName: "roomByCode", args: [code] });
-console.log(`room #${id} created with code XORR0001, stake ${usd(STAKE)} each`);
+console.log(`room #${id} created with code ${codeText}, stake ${usd(STAKE)} each`);
 console.log(`  alice band ${px(aLow)} .. ${px(aHigh)}`);
 
 h = await wb.writeContract({ address: d.roomMarket, abi: RoomAbi, functionName: "joinByCode", args: [code, bLow, bHigh] });
@@ -90,14 +107,15 @@ console.log(`\nsettled at ${px(after.settledPrice)}`);
 console.log(`  alice ${aAfter - aBefore >= 0n ? "+" : ""}${usd(aAfter - aBefore)}`);
 console.log(`  bob   ${bAfter - bBefore >= 0n ? "+" : ""}${usd(bAfter - bBefore)}`);
 console.log(`  vault fee +${usd(vaultAfter - vaultBefore)}`);
-console.log(`  room contract balance ${usd(roomBal)}`);
+console.log(`  room contract balance ${usd(roomBal)} (was ${usd(roomBefore)} before this round)`);
 
 const conserved = (aAfter - aBefore) + (bAfter - bBefore) + (vaultAfter - vaultBefore) === 0n;
 const noHouseRisk = reservedAfter === reservedBefore;
-const emptied = roomBal === 0n;
+// This round left nothing behind, whatever else the contract is holding for others.
+const emptied = roomBal === roomBefore;
 
 console.log(`\npot conserved: ${conserved}`);
 console.log(`house bankroll untouched: ${noHouseRisk} (reserved ${reservedBefore} -> ${reservedAfter})`);
-console.log(`room emptied: ${emptied}`);
+console.log(`this round closed out: ${emptied}`);
 console.log(conserved && noHouseRisk && emptied ? "H-5 PASS" : "H-5 FAIL");
 process.exit(conserved && noHouseRisk && emptied ? 0 : 1);
