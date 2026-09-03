@@ -3,6 +3,10 @@
 Each row is something XORR says about itself, and the exact command that proves or
 disproves it. Nothing here needs an account, a key, or trust in the interface.
 
+The console itself is live at **https://xorr-monad.vercel.app** — real tape, real
+pricing, and Kuru's market read on Monad mainnet. It has no chain of its own, so the
+contract claims below need the local bring-up:
+
 ```
 pnpm install
 pnpm demo          # fork Monad mainnet, deploy, fund, serve on :3000

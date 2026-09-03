@@ -215,7 +215,10 @@ export function OrderBook() {
           </div>
           <p className="mt-3 text-[11px] leading-relaxed text-white/40">
             These aggregates come from Kuru&apos;s API and are never used to price
-            anything. The ladder above is read from the chain.
+            anything.{" "}
+            {book.via === "book"
+              ? "The prices above are read from the chain."
+              : "The ladder above is read from the chain."}
           </p>
         </div>
       ) : null}

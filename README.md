@@ -2,6 +2,10 @@
 
 **Built for fun and money.** A handheld console for trading price ranges on Monad.
 
+**Try it: [xorr-monad.vercel.app](https://xorr-monad.vercel.app)** — the console, the
+real pricing kernel, and Kuru's book read live on Monad mainnet. Firing a real ticket
+needs the chain, which `pnpm demo` brings up locally in one command.
+
 You paint a band around the price, pick how long it has to hold, and hit the red key.
 If the price prints inside your band at the cutoff block, you get paid the multiplier.
 The whole round takes three seconds.

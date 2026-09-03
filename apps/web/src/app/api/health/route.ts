@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { KuruOracleAbi, OracleRouterAbi } from "@xorr/sdk";
+import { IKuruOrderBookAbi, KuruOracleAbi, OracleRouterAbi } from "@xorr/sdk";
 
 /**
  * Is this deployment actually working right now?
@@ -29,7 +29,20 @@ const MON_ID = "0x92bcb7355458a976a0b6be05319d37cc66bc1792624ca67226af747c1de28f
 /** A push feed older than this has stopped, whatever it claims. */
 const KEEPER_STALE_S = 30;
 
-type Part = { status: "ok" | "degraded" | "down"; detail?: string; [k: string]: unknown };
+/**
+ * "absent" is not "down".
+ *
+ * A deployment with no XORR contracts — the hosted build reads Kuru's market and runs
+ * the paper desk, and has no chain of its own — has no keeper to be down. Reporting it
+ * as down makes the endpoint return 503 for a service that is working exactly as
+ * configured, which is the same class of false alarm as scoring an unmeasured book as
+ * thin. Say the component is not part of this deployment instead.
+ */
+type Part = {
+  status: "ok" | "degraded" | "down" | "absent";
+  detail?: string;
+  [k: string]: unknown;
+};
 
 export async function GET() {
   const chain = defineChain({
@@ -51,7 +64,10 @@ export async function GET() {
   }
 
   // ---- the keeper, measured by how old its last print is rather than by asking it
-  let keeper: Part = { status: "down", detail: "no oracle configured" };
+  let keeper: Part = {
+    status: "absent",
+    detail: "no push oracle in this deployment — the desk runs on measured tape, not a feed",
+  };
   if (ORACLE && chainPart.status === "ok") {
     try {
       const [price, updatedAt] = (await pub.readContract({
@@ -76,8 +92,35 @@ export async function GET() {
   }
 
   // ---- Kuru's book, through XORR's own oracle rather than an API
-  let book: Part = { status: "down", detail: "no Kuru oracle deployed" };
-  if (KURU_ORACLE && chainPart.status === "ok") {
+  let book: Part = {
+    status: "absent",
+    detail: "KuruOracle is not deployed here; the book is read directly from the venue",
+  };
+  const KURU_BOOK = process.env.NEXT_PUBLIC_KURU_BOOK as Address | undefined;
+  if (!KURU_ORACLE && KURU_BOOK && chainPart.status === "ok") {
+    // No oracle, but the venue is still readable — and whether the venue answers is
+    // the thing worth reporting on a build that has nothing else on-chain.
+    try {
+      const top = (await pub.readContract({
+        address: KURU_BOOK,
+        abi: IKuruOrderBookAbi,
+        functionName: "bestBidAsk",
+      })) as readonly [bigint, bigint];
+      const bid = Number(top[0] / 10_000_000_000n) / 1e8;
+      const ask = Number(top[1] / 10_000_000_000n) / 1e8;
+      book = {
+        status: bid > 0 && ask > bid ? "ok" : "degraded",
+        detail:
+          bid > 0 && ask > bid
+            ? `Kuru's touch reads ${bid.toFixed(6)} / ${ask.toFixed(6)} — read directly, KuruOracle is not deployed here`
+            : "the venue's book is one-sided or crossed",
+        bid: bid.toFixed(6),
+        ask: ask.toFixed(6),
+      };
+    } catch (e) {
+      book = { status: "down", detail: (e as Error).message.slice(0, 120) };
+    }
+  } else if (KURU_ORACLE && chainPart.status === "ok") {
     try {
       const [bid, ask, mid, spreadBps] = (await pub.readContract({
         address: KURU_ORACLE,
@@ -113,6 +156,7 @@ export async function GET() {
     : parts.some((p) => p.status === "degraded")
       ? "degraded"
       : "ok";
+  // An absent component never makes the deployment unhealthy; it was never here.
 
   return NextResponse.json(
     { status, chain: chainPart, keeper, book, checkedAt: new Date().toISOString() },

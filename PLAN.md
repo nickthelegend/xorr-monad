@@ -74,9 +74,11 @@ length that is player-positive against real tape on any window. **Status: met �
 is the property most likely to regress; see Phase 6.**
 
 ### G6 — A judge can actually try it
-Right now a judge must clone the repo, install pnpm, run anvil forking Monad mainnet,
-deploy contracts, run a funding script and build the app. That is a serious barrier.
-**Status: NOT MET. This is the single largest gap between the project and a win.**
+**Status: met for the console, short of it for the chain.** The desk is live at
+**https://xorr-monad.vercel.app** — real Binance tape through the same pricing kernel
+the contracts use, and Kuru's real market read on Monad mainnet. Firing a real ticket
+still needs the local bring-up, which is now `pnpm demo` rather than six commands. The
+public build says which parts are not in its path rather than implying they are.
 
 ### G7 — The pitch lands in three minutes
 `docs/DEMO.md` is a written script. There is no recording, and several numbers in it are
@@ -184,9 +186,9 @@ at this machine to see it. A judge who cannot run the project scores what they c
 | # | Task | Status |
 |---|---|---|
 | 5.1 | **Decide the public target.** Options: (a) Monad testnet deploy, (b) a hosted anvil-fork behind a public RPC, (c) paper-desk-only public build with live Kuru reads via `/api/kuru` against public Monad RPC. (c) is cheapest and still demonstrates the order-book integration, because reading the book needs no deployment of ours. Write the decision and its trade-offs into this file before building. | DONE — decided **(c)**, and the reasoning is below the table. (a) is blocked: Monad testnet needs a funded key and `PRIVATE_KEY` is empty, with no scriptable faucet. (b) needs a paid always-on host for anvil, and its forked AUSD holder drains as people use it. |
-| 5.2 | Deploy `apps/web` to a public URL (Vercel or Railway). Set `NEXT_PUBLIC_*` for the chosen target. **`XORR_ALLOW_UNLOCKED_ACCOUNTS` must be unset in production** — it enables `eth_sendTransaction` and account-unlock methods through the proxy. | NOT STARTED |
-| 5.3 | If 5.1 chooses a chain deploy: run `Deploy.s.sol` against Monad testnet with `KURU_MON_AUSD` set, commit `deployments/<chainid>.json`, fund the vault, run the keeper on a host that stays up. | NOT STARTED |
-| 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | NOT STARTED |
+| 5.2 | Deploy `apps/web` to a public URL (Vercel or Railway). Set `NEXT_PUBLIC_*` for the chosen target. **`XORR_ALLOW_UNLOCKED_ACCOUNTS` must be unset in production** — it enables `eth_sendTransaction` and account-unlock methods through the proxy. | DONE — live at **https://xorr-monad.vercel.app**. Functions run in `fra1`: Binance answers Vercel's US region with HTTP 451, and the desk correctly refused to invent a price rather than showing one. `XORR_ALLOW_UNLOCKED_ACCOUNTS` is absent — the deployment has exactly four variables |
+| 5.3 | If 5.1 chooses a chain deploy: run `Deploy.s.sol` against Monad testnet with `KURU_MON_AUSD` set, commit `deployments/<chainid>.json`, fund the vault, run the keeper on a host that stays up. | BLOCKED — needs a funded Monad testnet key. `PRIVATE_KEY` is empty, and the testnet faucet cannot be scripted. Not attempted rather than faked |
+| 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | BLOCKED — depends on 5.3; there is no public deployment of the contracts to verify |
 | 5.5 | Record a 3-minute demo video following `docs/DEMO.md`, and fix that script's stale numbers first (see 7.2). | NOT STARTED |
 | 5.6 | Write a **judge-facing one-pager** (idea #100): each claim, and the exact command that proves it. `pnpm check:kuru` for the book, `pnpm parity` for the two implementations, `pnpm check:edge` for solvency, `pnpm check:chain` for deployed-vs-SDK agreement. | DONE — `docs/VERIFY.md`, every claim paired with the command that proves it |
 | 5.7 | Add `pnpm demo` (idea #92): one script that starts anvil, deploys, funds, starts the keeper and serves the app, with a readiness check on each step. Removes six manual steps from `docs/DEMO.md`. | DONE — verified end to end: fork → deploy → fund → keeper → build → serve, all three health parts green |
@@ -235,7 +237,7 @@ three times already. The structural fix landed (`527611c`); the operational half
 | 6.7 | Transaction queue so two fires cannot collide on a nonce (idea #76). No nonce management exists in `useLiveDesk.ts`. | DONE — a per-session queue on fire and settle. Verified live: two presses in the same tick produced tickets #2 and #3 at consecutive blocks from one account, no collision, balance down exactly two stakes |
 | 6.8 | Retry with backoff on RPC failure, surfaced rather than hidden (idea #78). | DONE — backoff on transport failures only; a reverted simulation is an answer and is never retried |
 | 6.9 | Rate-limit `/api/price` and briefly cache upstream prices to survive an exchange hiccup (ideas #79, #80). Currently every client request hits Binance with `cache: "no-store"`. | DONE — 1s spot / 15s history cache with in-flight de-duplication, plus a 60-per-10s per-caller limit. Verified: identical price within TTL, and 70 rapid calls gave 58×200 then 12×429 |
-| 6.10 | Run `check:edge` in CI on a schedule so a regime change is caught by the repo, not by a judge. Depends on 7.5. | NOT STARTED |
+| 6.10 | Run `check:edge` in CI on a schedule so a regime change is caught by the repo, not by a judge. Depends on 7.5. | DONE — `.github/workflows/ci.yml` on every push, `edge.yml` every six hours. Both new gates run clean locally |
 
 ## Phase 7 — Documentation truth pass *(IN PROGRESS)*
 
