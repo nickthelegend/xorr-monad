@@ -6,18 +6,6 @@ honest audit of every gap between what exists and what is claimed.
 
 Status tags: `DONE` · `IN PROGRESS` · `NOT STARTED` · `BLOCKED`
 
-> **Execution halted: the host ran out of disk.** Work stopped partway through Phases 5
-> to 7 because `/` filled and no command can run — the harness cannot even create a
-> process's output file. Nothing is wrong with the repo; the uncommitted work in the
-> tree is sound and typechecks, it just cannot be executed or committed until space is
-> freed. Likely culprits are Foundry's forked-mainnet RPC cache (`~/.foundry/cache/rpc`,
-> which grows fast when anvil forks Monad at 300ms for hours), `packages/contracts/out`
-> and `broadcast`, `apps/web/.next`, and `/tmp/xorr`. There is also an `anvil` process
-> still running from the interrupted `tools/demo.sh`.
->
-> To resume: free space, `pkill -f anvil`, then `pnpm demo --fresh`, and continue from
-> the first task below still marked `IN PROGRESS` or `NOT STARTED`.
-
 ---
 
 ## 0. Orientation
@@ -112,9 +100,9 @@ essentially complete**; the work that remains is concentrated in **Phases 5–8*
 | 2 | Order-book integration (the sponsor track) | DONE |
 | 3 | The console — desk, band painter, live mode | DONE |
 | 4 | Screens and real data | DONE |
-| 5 | **Judgeability — deploy, record, verify** | **NOT STARTED** |
-| 6 | **Solvency hardening and operations** | **IN PROGRESS** |
-| 7 | Documentation truth pass | IN PROGRESS |
+| 5 | **Judgeability — deploy, record, verify** | IN PROGRESS — everything but the public deploy and the recording |
+| 6 | **Solvency hardening and operations** | IN PROGRESS |
+| 7 | Documentation truth pass | DONE |
 | 8 | Depth items — remaining ranked ideas | NOT STARTED |
 
 ---
@@ -216,11 +204,11 @@ three times already. The structural fix landed (`527611c`); the operational half
 | 6.1 | Quote the **envelope** of recent win rates (65th percentile across sliding windows) rather than a point fit — the fix for the recurring player-positive 3s round | DONE |
 | 6.2 | `check:edge` sweeps four disjoint tape windows and fails if any round is player-positive on any of them | DONE |
 | 6.3 | `check:edge` fails when a round quotes nothing (previously `NaN > 1` was false, so an empty book passed) | DONE |
-| 6.4 | **Keeper drives `remark` on a cadence** so sigma tracks the regime instead of hedging against it. `pnpm remark` exists and works; nothing calls it automatically. This is the stated "honest next step" in `docs/HACKATHON.md` and it is not built. | IN PROGRESS — the prerequisite is done: the sigma estimator now lives in one place (`packages/sdk/src/remark.ts`) so the keeper and the calibration cannot drift apart, with 5 tests pinning its properties. `calibrate-all.ts` imports it. The keeper's cadence itself is not yet wired. |
-| 6.5 | Structured logging in the keeper (idea #82) — currently plain `console.log`. Needed to tell "the keeper is fine" from "the keeper is wedged" during a demo. | NOT STARTED |
-| 6.6 | Prove keeper restart-safety with a test rather than a comment (idea #83). It re-bases past the deviation guard after a gap; that path has no test. | NOT STARTED |
-| 6.7 | Transaction queue so two fires cannot collide on a nonce (idea #76). No nonce management exists in `useLiveDesk.ts`. | NOT STARTED |
-| 6.8 | Retry with backoff on RPC failure, surfaced rather than hidden (idea #78). | NOT STARTED |
+| 6.4 | **Keeper drives `remark` on a cadence** so sigma tracks the regime instead of hedging against it. `pnpm remark` exists and works; nothing calls it automatically. This is the stated "honest next step" in `docs/HACKATHON.md` and it is not built. | DONE — the keeper refits sigma from 160,000 candles and pushes it via `setRoundConfigs`, off the hot loop so the 1.5s publish never waits on it. Verified on-chain: BTC tier 0 went 3573 → 3800 (+6.4%) in a real signed transaction |
+| 6.5 | Structured logging in the keeper (idea #82) — currently plain `console.log`. Needed to tell "the keeper is fine" from "the keeper is wedged" during a demo. | DONE — one JSON object per line; `start`, `published`, `settled`, `remarked`, `rebased`, and the failure events, each with fields rather than a sentence |
+| 6.6 | Prove keeper restart-safety with a test rather than a comment (idea #83). It re-bases past the deviation guard after a gap; that path has no test. | DONE — `test_KeeperRecoversFromAGapByRebasing` walks the exact restart sequence: push, gap, guard refuses the batch, the stale print survives untouched, owner re-bases, publishing resumes |
+| 6.7 | Transaction queue so two fires cannot collide on a nonce (idea #76). No nonce management exists in `useLiveDesk.ts`. | DONE — a per-session queue on fire and settle. Verified live: two presses in the same tick produced tickets #2 and #3 at consecutive blocks from one account, no collision, balance down exactly two stakes |
+| 6.8 | Retry with backoff on RPC failure, surfaced rather than hidden (idea #78). | DONE — backoff on transport failures only; a reverted simulation is an answer and is never retried |
 | 6.9 | Rate-limit `/api/price` and briefly cache upstream prices to survive an exchange hiccup (ideas #79, #80). Currently every client request hits Binance with `cache: "no-store"`. | DONE — 1s spot / 15s history cache with in-flight de-duplication, plus a 60-per-10s per-caller limit. Verified: identical price within TTL, and 70 rapid calls gave 58×200 then 12×429 |
 | 6.10 | Run `check:edge` in CI on a schedule so a regime change is caught by the repo, not by a judge. Depends on 7.5. | NOT STARTED |
 

@@ -66,6 +66,67 @@ function chainErrorText(e: unknown): string {
   return pick.split("\n")[0].slice(0, 120);
 }
 
+/**
+ * One transaction at a time, per session.
+ *
+ * Two fires in flight from the same account collide on a nonce: the wallet hands both
+ * the same one, the second is rejected as a replacement, and the desk shows a failure
+ * for a ticket the user did open. On a 300ms chain that is not a rare race — it is what
+ * happens when someone hits the key twice, which the product actively encourages by
+ * telling them to stack.
+ *
+ * A queue rather than a lock, because refusing the second press would be worse than
+ * sequencing it: the band is sent as a shape and centred at execution, so a fire that
+ * waits its turn is still the band the player painted.
+ */
+let txQueue: Promise<unknown> = Promise.resolve();
+
+function queued<T>(job: () => Promise<T>): Promise<T> {
+  const run = txQueue.then(job, job);
+  // Keep the chain alive after a rejection; a failed fire must not wedge every later one.
+  txQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
+ * Retry a read that failed for a transport reason, and never one that failed for a
+ * contract reason.
+ *
+ * A reverted simulation is an answer — the band is too tight, the price is stale — and
+ * retrying it just repeats the same answer more slowly. A dropped connection is not an
+ * answer, and on a node that is briefly busy the difference between surfacing it and
+ * retrying once is the difference between a demo that stutters and one that fails.
+ */
+async function withBackoff<T>(what: string, job: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await job();
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      // Anything the contract or the user decided is final.
+      if (
+        /revert|rejected|denied|insufficient|Stale|Band|Tier|Market|execution reverted|User/i.test(
+          msg,
+        )
+      ) {
+        throw e;
+      }
+      lastErr = e;
+      if (i < attempts - 1) {
+        // 200ms, then 600ms. Short: the round these serve is three seconds long.
+        await new Promise((r) => setTimeout(r, 200 * 3 ** i));
+      }
+    }
+  }
+  throw new Error(
+    `${what} failed after ${attempts} attempts: ${String((lastErr as Error)?.message ?? lastErr).slice(0, 160)}`,
+  );
+}
+
 export function useLiveDesk(market: MarketDef, tier: number) {
   const [state, setState] = useState<LiveState>({
     ready: false,
@@ -263,7 +324,8 @@ export function useLiveDesk(market: MarketDef, tier: number) {
    * reverts. Sending the shape lets the contract centre it on the print at execution.
    */
   const fire = useCallback(
-    async (lowHalf1e4: bigint, highHalf1e4: bigint, stake: bigint) => {
+    (lowHalf1e4: bigint, highHalf1e4: bigint, stake: bigint) =>
+      queued(async () => {
       const account = accountRef.current;
       if (!account || !range || !ausd) throw new Error("connect a wallet first");
       const wallet = walletClientFor(account);
@@ -284,19 +346,21 @@ export function useLiveDesk(market: MarketDef, tier: number) {
       // Simulate first. The market refuses bands for specific, nameable reasons —
       // too wide, too tight, spot outside, a stale print — and simulating turns those
       // into a decoded custom error instead of an opaque failed transaction.
-      const { request } = await publicClient.simulateContract({
-        account,
-        address: range,
-        abi: RangeMarketAbi,
-        functionName: "fireBand",
-        args: [
-          market.marketId as Hex,
-          Number(lowHalf1e4),
-          Number(highHalf1e4),
-          stake,
-          tier,
-        ],
-      });
+      const { request } = await withBackoff("quoting the band", () =>
+        publicClient.simulateContract({
+          account,
+          address: range,
+          abi: RangeMarketAbi,
+          functionName: "fireBand",
+          args: [
+            market.marketId as Hex,
+            Number(lowHalf1e4),
+            Number(highHalf1e4),
+            stake,
+            tier,
+          ],
+        }),
+      );
 
       const hash = await wallet.writeContract(request);
       await confirm(hash, "fire");
@@ -304,32 +368,35 @@ export function useLiveDesk(market: MarketDef, tier: number) {
       setState((s) => ({ ...s, pending: null, lastTx: { hash, label: "fired" } }));
       void refresh();
       return hash;
-    },
+      }),
     [range, ausd, market.marketId, tier, state.allowance, refresh, confirm],
   );
 
   /** Anyone can poke a ticket once its cutoff block has passed. */
   const settle = useCallback(
-    async (id: bigint) => {
+    (id: bigint) =>
+      queued(async () => {
       const account = accountRef.current;
       if (!account || !range) throw new Error("connect a wallet first");
       const wallet = walletClientFor(account);
 
       setState((s) => ({ ...s, pending: "settling" }));
-      const { request } = await publicClient.simulateContract({
-        account,
-        address: range,
-        abi: RangeMarketAbi,
-        functionName: "settle",
-        args: [id],
-      });
+      const { request } = await withBackoff("preparing the settle", () =>
+        publicClient.simulateContract({
+          account,
+          address: range,
+          abi: RangeMarketAbi,
+          functionName: "settle",
+          args: [id],
+        }),
+      );
       const hash = await wallet.writeContract(request);
       await confirm(hash, "settle");
 
       setState((s) => ({ ...s, pending: null, lastTx: { hash, label: "settled" } }));
       void refresh();
       return hash;
-    },
+      }),
     [range, refresh, confirm],
   );
 

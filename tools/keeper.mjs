@@ -1,7 +1,7 @@
 /**
  * XORR keeper.
  *
- * Two jobs, both of which a production deployment needs and neither of which is
+ * Three jobs, all of which a production deployment needs and none of which is
  * simulated:
  *
  *   1. PUBLISH PRICES. Reads real market prices from Binance and submits them to
@@ -13,12 +13,29 @@
  *   2. SETTLE. Pokes every ticket whose cutoff block has passed. Anyone can do this —
  *      the keeper just makes sure somebody does.
  *
+ *   3. RE-MARK. Refits volatility from recent tape and pushes it on-chain via
+ *      RangeMarket.setRoundConfigs.
+ *
+ *      This is the operational half of the pricing. Sigma is deliberately estimated at
+ *      the quiet end of recent windows, which is what keeps the vault solvent through a
+ *      regime change — and it is also what makes the spread much wider than the 4% fee.
+ *      A calibration fixed at deploy time has to hedge against every regime the market
+ *      might enter next; one that re-marks only has to cover the drift since the last
+ *      mark. Re-marking often is therefore not an optimisation, it is how the spread
+ *      gets narrower without the vault getting thinner.
+ *
+ *      The estimator is imported from the SDK rather than reimplemented here. A keeper
+ *      carrying its own copy of this arithmetic would be a solvency bug waiting for
+ *      someone to edit one of them.
+ *
  * Run: pnpm keeper
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { remarkSigmas1e4 } from "../packages/sdk/src/remark.ts";
+import { secondCloses } from "../packages/sdk/src/termstructure.ts";
 
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 const CHAIN_ID = Number(process.env.CHAIN_ID ?? 143);
@@ -26,6 +43,22 @@ const PK =
   process.env.PRIVATE_KEY ??
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const TICK_MS = Number(process.env.TICK_MS ?? 1500);
+/** How often to refit volatility and push it on-chain. 0 disables re-marking. */
+const REMARK_MS = Number(process.env.REMARK_MS ?? 900_000);
+
+/**
+ * One JSON object per line.
+ *
+ * A keeper is watched by things that are not people — a health check, a log drain, a
+ * grep in a demo — and "published BTC 77748.00 0x1f2e…" is only readable by the third.
+ * The question that actually matters at 3am is "is it still publishing", and that needs
+ * a field, not a sentence.
+ */
+function log(event, fields = {}) {
+  process.stdout.write(
+    JSON.stringify({ t: new Date().toISOString(), event, ...fields }) + "\n",
+  );
+}
 
 const root = fileURLToPath(new URL("../packages/contracts/", import.meta.url));
 const deployment = JSON.parse(readFileSync(`${root}deployments/${CHAIN_ID}.json`, "utf8"));
@@ -57,10 +90,10 @@ const pub = createPublicClient({ chain, transport: http(RPC) });
 const wallet = createWalletClient({ account, chain, transport: http(RPC) });
 
 if (deployment.oracleKind !== "keeper") {
-  console.log(
-    `deployment ${CHAIN_ID} reads its prices from "${deployment.oracleKind}", which publishes\n` +
-      `on its own. This keeper will only settle expired tickets.`,
-  );
+  log("publish_disabled", {
+    oracleKind: deployment.oracleKind,
+    note: "this deployment's oracle publishes on its own; only settling expired tickets",
+  });
 }
 
 /** marketId -> the Binance symbol whose mid we publish for it. */
@@ -104,9 +137,10 @@ async function publish() {
     await pub.waitForTransactionReceipt({ hash });
     published++;
     if (published % 10 === 1) {
-      console.log(
-        `published ${feeds.map((f) => `${f.key} ${(Number(f.price) / 1e8).toFixed(2)}`).join("  ")}  ${hash.slice(0, 12)}…`,
-      );
+      log("published", {
+        prices: Object.fromEntries(feeds.map((f) => [f.key, Number(f.price) / 1e8])),
+        tx: hash,
+      });
     }
   } catch (e) {
     // A restart after a long gap can exceed the oracle's single-update deviation
@@ -121,11 +155,120 @@ async function publish() {
           args: [f.id, f.price],
         });
       }
-      console.log("re-based feeds past the deviation guard after a gap");
+      log("rebased", { reason: "deviation guard tripped after a gap", feeds: feeds.map((f) => f.key) });
     } else {
       throw e;
     }
   }
+}
+
+/**
+ * Refit volatility from recent tape and push it on-chain.
+ *
+ * Only sigma moves. The measured SHAPE of the distribution — the probability table,
+ * including the point mass at zero that makes a three-second round pricable at all —
+ * is left exactly as calibrated, because it changes far more slowly than its scale
+ * does and refitting it here would mean re-running the walk-forward gate that decides
+ * whether a round is solvent at all. That gate belongs in `calibrate-all`, under a
+ * human, not in a loop. So `setRoundConfigs` carries the new sigma and the existing
+ * floors, which is precisely what the contract documents that function for.
+ *
+ * A refit that comes back larger than the current mark is published like any other. It
+ * is tempting to only ever shade downward, but a rising sigma means the market got
+ * louder and the bands must widen to stay solvent — refusing to publish that would be
+ * the one direction that actually drains the bankroll.
+ */
+/**
+ * Start the clock at boot rather than at zero.
+ *
+ * The tables were calibrated at deploy time, so there is nothing to re-mark on the
+ * first tick — and doing it anyway meant the keeper's opening move was a 160,000-candle
+ * fetch, which is exactly when a demo is being watched.
+ */
+let lastRemark = Date.now();
+let remarking = false;
+
+let remarkDisabled = false;
+
+async function remark() {
+  if (REMARK_MS <= 0 || remarking || remarkDisabled) return;
+  if (Date.now() - lastRemark < REMARK_MS) return;
+  remarking = true;
+  lastRemark = Date.now();
+
+  for (const f of FEEDS) {
+    let closes;
+    try {
+      closes = await secondCloses(f.symbol, 160_000);
+    } catch (e) {
+      log("remark_skipped", { market: f.key, reason: `tape unavailable: ${String(e).slice(0, 120)}` });
+      continue;
+    }
+
+    const sigmas = remarkSigmas1e4(closes);
+
+    const current = await pub.readContract({
+      address: deployment.rangeMarket,
+      abi: RangeMarketAbi,
+      functionName: "roundConfigs",
+      args: [f.id],
+    });
+
+    if (current.length !== sigmas.length) {
+      log("remark_skipped", {
+        market: f.key,
+        reason: `chain has ${current.length} rounds, the fit produced ${sigmas.length}`,
+      });
+      continue;
+    }
+
+    // The floors and ceilings are the calibration's, not ours. Only sigma is re-marked.
+    const cfgs = current.map((c, i) => ({
+      sigma1e4: sigmas[i],
+      minProb1e6: c.minProb1e6,
+      maxMultiplierBps: c.maxMultiplierBps,
+    }));
+
+    const drift = cfgs.map((c, i) =>
+      Number(current[i].sigma1e4) === 0
+        ? 0
+        : +(((c.sigma1e4 - Number(current[i].sigma1e4)) / Number(current[i].sigma1e4)) * 100).toFixed(1),
+    );
+
+    try {
+      const hash = await wallet.writeContract({
+        address: deployment.rangeMarket,
+        abi: RangeMarketAbi,
+        functionName: "setRoundConfigs",
+        args: [f.id, cfgs],
+      });
+      await pub.waitForTransactionReceipt({ hash });
+      log("remarked", {
+        market: f.key,
+        closes: closes.length,
+        sigma1e4: cfgs.map((c) => c.sigma1e4),
+        driftPct: drift,
+        tx: hash,
+      });
+    } catch (e) {
+      // setRoundConfigs is owner-only. A keeper running on its own key cannot re-mark,
+      // which is a deployment choice rather than a fault — say so once, clearly, rather
+      // than failing the tick every fifteen minutes.
+      const msg = String(e);
+      log("remark_failed", {
+        market: f.key,
+        error: /NotOwner/.test(msg)
+          ? "this keeper's account does not own RangeMarket, so it cannot re-mark. Run the keeper on the owner key, or use `pnpm remark`."
+          : msg.slice(0, 200),
+      });
+      if (/NotOwner/.test(msg)) {
+        remarkDisabled = true; // a deployment choice, not a transient fault
+        remarking = false;
+        return;
+      }
+    }
+  }
+  remarking = false;
 }
 
 async function settleDue() {
@@ -160,22 +303,30 @@ async function settleDue() {
         functionName: "getTicket",
         args: [id],
       });
-      console.log(
-        `settled #${id} ${["open", "WON", "lost", "void"][after.status].padEnd(4)} ` +
-          `at ${(Number(after.settledPrice) / 1e8).toFixed(2)}  ${hash}`,
-      );
+      log("settled", {
+        ticket: Number(id),
+        outcome: ["open", "won", "lost", "void"][after.status],
+        price: Number(after.settledPrice) / 1e8,
+        tx: hash,
+      });
     } catch (e) {
       if (!String(e).includes("StalePrice")) {
-        console.error(`#${id}: ${String(e).slice(0, 120)}`);
+        log("settle_failed", { ticket: Number(id), error: String(e).slice(0, 160) });
       }
     }
   }
 }
 
-console.log(`XORR keeper — chain ${CHAIN_ID} via ${RPC}`);
-console.log(`  oracle      ${deployment.oracle} (${deployment.oracleKind})`);
-console.log(`  rangeMarket ${deployment.rangeMarket}`);
-console.log(`  publishing real Binance prices every ${TICK_MS}ms\n`);
+log("start", {
+  chainId: CHAIN_ID,
+  rpc: RPC,
+  oracle: deployment.oracle,
+  oracleKind: deployment.oracleKind,
+  rangeMarket: deployment.rangeMarket,
+  account: account.address,
+  tickMs: TICK_MS,
+  remarkMs: REMARK_MS,
+});
 
 let running = false;
 async function loop() {
@@ -184,8 +335,15 @@ async function loop() {
     try {
       await publish();
       await settleDue();
+      /**
+       * Deliberately not awaited. Re-marking pulls 160,000 candles per market, which
+       * takes the better part of a minute — long enough that awaiting it here stalls
+       * the 1.5-second publish loop and the price on the desk visibly freezes. It
+       * guards its own re-entry, so letting it run alongside is safe.
+       */
+      void remark().catch((e) => log("remark_failed", { error: String(e).slice(0, 200) }));
     } catch (e) {
-      console.error("keeper:", String(e).slice(0, 180));
+      log("tick_failed", { error: String(e).slice(0, 200) });
     }
     running = false;
   }

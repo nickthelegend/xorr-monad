@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono, Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
+import { EvictForeignServiceWorker } from "@/components/EvictForeignServiceWorker";
 
 const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -47,7 +48,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plexMono.variable} ${display.variable}`}>
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased">
+        <EvictForeignServiceWorker />
+        {children}
+      </body>
     </html>
   );
 }
