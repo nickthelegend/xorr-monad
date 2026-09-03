@@ -43,6 +43,8 @@ interface Book {
   } | null;
   /** Whether the touch actually moved across the settlement window. */
   windowMove?: { fromBid: number; fromAsk: number; movedBps: number; blocks: number } | null;
+  /** Set when that comparison could not be read at all. */
+  windowMoveUnavailable?: string | null;
   /** Set when this response is a past block rather than the head. */
   replayOf?: string | null;
   /** Set when a past block was asked for and the node could not answer for it. */
@@ -291,7 +293,13 @@ export function OrderBook() {
 
       {b.marks ? <WhyThisPrice book={book} /> : null}
 
-      {b.marks ? <SettlementWindow marks={b.marks} move={book.windowMove ?? null} /> : null}
+      {b.marks ? (
+        <SettlementWindow
+          marks={b.marks}
+          move={book.windowMove ?? null}
+          moveUnavailable={book.windowMoveUnavailable ?? null}
+        />
+      ) : null}
 
       {book.manipulation ? (
         <MoveCost m={book.manipulation} window={b.marks?.twapWindow ?? 0} />
@@ -661,9 +669,11 @@ function Basis({ basis }: { basis: NonNullable<Book["basis"]> }) {
 function SettlementWindow({
   marks,
   move,
+  moveUnavailable,
 }: {
   marks: NonNullable<NonNullable<Book["onchain"]>["marks"]>;
   move: Book["windowMove"];
+  moveUnavailable: string | null;
 }) {
   const blocks = Math.round((marks.twapWindow * 1000) / 300);
   return (

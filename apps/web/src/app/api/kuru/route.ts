@@ -467,6 +467,7 @@ export async function GET(req: Request) {
      */
     let windowMove: { fromBid: number; fromAsk: number; movedBps: number; blocks: number } | null =
       null;
+    let windowMoveUnavailable: string | null = null;
     const windowBlocks = Math.round((Number(twapWindowRaw) * 1000) / 300);
     if (windowBlocks > 0 && bookBlock > BigInt(windowBlocks)) {
       try {
@@ -487,8 +488,20 @@ export async function GET(req: Request) {
             blocks: windowBlocks,
           };
         }
-      } catch {
+      } catch (e) {
+        /**
+         * Say why the comparison is missing rather than omitting it.
+         *
+         * Silently dropping it makes an unanswerable question look like a still book,
+         * which is the one reading this panel must never invite: "the touch did not
+         * move" and "nobody could tell me whether it moved" are different facts.
+         */
         windowMove = null;
+        windowMoveUnavailable = /missing bytecode|missing trie node|header not found/i.test(
+          String(e),
+        )
+          ? "this node does not keep the venue's state that far back"
+          : String((e as Error).message).split("\n")[0].slice(0, 100);
       }
     }
 
@@ -539,6 +552,7 @@ export async function GET(req: Request) {
         routed,
         // Whether the book actually moved across the settlement window.
         windowMove,
+        windowMoveUnavailable,
         /**
          * What it would cost to move the mark by 1%, walked from this ladder.
          *
