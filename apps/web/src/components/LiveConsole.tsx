@@ -13,6 +13,7 @@ import {
 } from "@xorr/sdk";
 import { useLiveDesk } from "@/lib/useLiveDesk";
 import { useBand } from "@/lib/useBand";
+import { useMarkTick } from "@/lib/useMarkTick";
 import { ADDRESSES, LIVE_CONFIGURED, activeChain } from "@/lib/chain";
 import { DeviceFrame } from "./device/DeviceFrame";
 import { RangeChart } from "./device/RangeChart";
@@ -42,7 +43,8 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
   // Pass the real spot, including zero before the first read lands. Substituting a
   // placeholder price to avoid a divide-by-zero produces a legal-looking but nonsense
   // band window, and the band then sticks at maximum width once the real price arrives.
-  const band = useBand(market, tier, state.spot);
+  const markTick = useMarkTick(market.key);
+  const band = useBand(market, tier, state.spot, markTick);
   const stake = STAKE_STEPS[stakeStep - 1];
 
   const say = useCallback((m: string) => {

@@ -21,7 +21,11 @@ export interface Band {
 
 const ONE = 100_000_000n; // 1e4-scaled bps in a whole unit
 
-export function useBand(market: MarketDef, tier: number, spot: bigint) {
+/**
+ * @param markTick1e8 Finest step the settling mark can move, in 8dp units. Zero means
+ *        the market is not priced from a venue with a grid, and edges are left alone.
+ */
+export function useBand(market: MarketDef, tier: number, spot: bigint, markTick1e8 = 0n) {
   const round = market.rounds[tier];
   const ready = spot > 0n;
 
@@ -82,8 +86,25 @@ export function useBand(market: MarketDef, tier: number, spot: bigint) {
       ? { lowHalf1e4: clamp(band.lowHalf1e4), highHalf1e4: clamp(band.highHalf1e4) }
       : null;
 
-  const low = effective && ready ? spot - (spot * effective.lowHalf1e4) / ONE : 0n;
-  const high = effective && ready ? spot + (spot * effective.highHalf1e4) / ONE : 0n;
+  /**
+   * Snap the edges OUTWARD onto the grid the mark can actually land on.
+   *
+   * An edge sitting between two prices the venue can print is not a real boundary — the
+   * mark will step straight over it — so the band's true width is whatever the grid
+   * rounds it to. Better to show that width than a finer one that is not real.
+   *
+   * Outward on both sides, never inward: rounding a band tighter than the player painted
+   * would take away width they chose, and would do it invisibly.
+   */
+  const snapDown = (v: bigint) =>
+    markTick1e8 > 0n && v > 0n ? (v / markTick1e8) * markTick1e8 : v;
+  const snapUp = (v: bigint) =>
+    markTick1e8 > 0n && v > 0n
+      ? ((v + markTick1e8 - 1n) / markTick1e8) * markTick1e8
+      : v;
+
+  const low = effective && ready ? snapDown(spot - (spot * effective.lowHalf1e4) / ONE) : 0n;
+  const high = effective && ready ? snapUp(spot + (spot * effective.highHalf1e4) / ONE) : 0n;
 
   const q = useMemo(() => {
     if (!ready || !effective || low <= 0n || high <= low) return null;

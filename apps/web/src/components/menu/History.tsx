@@ -48,13 +48,41 @@ export function History({ tickets }: { tickets: PaperTicket[] }) {
                 {fmtUsd(t.stake)} @ {fmtMultiplier(t.multiplierBps)}
               </span>
             </div>
-            <div className="mono mt-1 text-[10px] tracking-wide text-white/25">
+            {/*
+              * Where the settling price came from, on the row that shows it.
+              *
+              * "printed 77,523.42" is a number with no provenance, and this project's
+              * whole claim is about where the number comes from. MON settles on Kuru's
+              * book; BTC and ETH settle on measured exchange tape. Saying which, per
+              * ticket, is the difference between a receipt and an assertion.
+              */}
+            <div className="mono mt-1 text-[10px] leading-relaxed tracking-wide text-white/25">
               cutoff block {t.expiryBlock.toLocaleString()}
-              {t.settledPrice !== null ? ` · printed ${fmtPrice(t.settledPrice, dp)}` : ""}
+              {t.settledPrice !== null ? (
+                <>
+                  {" · settled on "}
+                  <span className="text-white/45">{settleSource(m?.source)}</span>
+                  {" at "}
+                  {fmtPrice(t.settledPrice, dp)}
+                </>
+              ) : null}
             </div>
           </div>
         );
       })}
     </div>
   );
+}
+
+/**
+ * The market's configured source, said the way a person would.
+ *
+ * The stored strings carry their sampling detail ("binance:BTCUSDT 1s") because the
+ * calibration needs it; a history row does not, and the venue is the part that matters.
+ */
+function settleSource(source: string | undefined): string {
+  if (!source) return "an unknown source";
+  if (source.startsWith("kuru:")) return "Kuru's book";
+  const venue = source.split(":")[0];
+  return venue.charAt(0).toUpperCase() + venue.slice(1);
 }

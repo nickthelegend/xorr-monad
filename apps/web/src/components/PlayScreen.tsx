@@ -14,6 +14,7 @@ import {
 } from "@xorr/sdk";
 import { usePaperDesk } from "@/lib/usePaperDesk";
 import { useBand } from "@/lib/useBand";
+import { useMarkTick } from "@/lib/useMarkTick";
 import { usePrefs, useApplyTheme, usePrefersReducedMotion } from "@/lib/usePrefs";
 import { useSound } from "@/lib/useSound";
 import { DeviceFrame } from "./device/DeviceFrame";
@@ -57,7 +58,8 @@ export function PlayScreen() {
 
   const desk = usePaperDesk(prefs.market);
   const { state, setMarketKey, setTier, setRunning, fire, reset } = desk;
-  const band = useBand(state.market, state.tier, state.spot);
+  const markTick = useMarkTick(state.market.key);
+  const band = useBand(state.market, state.tier, state.spot, markTick);
   const play = useSound(prefs.sound);
 
   const [stakeStep, setStakeStep] = useState(2); // $1.5

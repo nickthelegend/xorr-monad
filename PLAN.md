@@ -265,11 +265,11 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 
 | # | Idea | Task | Status |
 |---|---|---|---|
-| 8.1 | #11 | Settle-price provenance in the tape: each settled row reads "settled on Kuru mid @ block N" | NOT STARTED |
+| 8.1 | #11 | Settle-price provenance in the tape: each settled row reads "settled on Kuru mid @ block N" | DONE — each settled row now reads "settled on Kuru's book at …" or "settled on Binance at …". A printed price with no provenance is an assertion; with it, it is a receipt |
 | 8.2 | #13 | Show the live basis between Kuru's mid and Binance's mid — makes "our price is the book" concrete by showing where it differs | DONE — MON is not on Binance, but Coinbase quotes MON-USD, so the panel puts the on-chain book beside a centralised one: their spread 6.4 bps against Kuru's 198, a +27 bps basis, 31x wider. Reported, never corrected for |
 | 8.3 | #14 | Fall back from Kuru to the keeper feed **explicitly and visibly**, never silently. Today `OracleRouter` has a fallback; the UI does not announce when it is in use. | DONE — the panel reads `OracleRouter.sourceOf` and shows where MON is routed. Verified by actually repointing the route on-chain to the keeper feed: the panel turned red, named the address and label, and the provenance paragraph switched to the past tense rather than continuing to claim the mark comes from the book |
-| 8.4 | #15 | Micro-sparkline of the spread over the last N blocks | NOT STARTED |
-| 8.5 | #22 | Encode band edges in tick-size units so they align to the book's grid | NOT STARTED |
+| 8.4 | #15 | Micro-sparkline of the spread over the last N blocks | DONE — twenty samples of the spread on the deck's strip, scaled to their own range so a steady book reads flat rather than as noise around zero. Verified live: "198 to 198 bps" |
+| 8.5 | #22 | Encode band edges in tick-size units so they align to the book's grid | DONE — and the right grid is the HALF-tick, not the tick: bid and ask are tick multiples, so their midpoint lands between them. Snapped outward only, never taking away width the player painted. Verified: displayed prices all land on the grid |
 | 8.6 | #23 | Store a depth snapshot with each ticket, for auditable settlement | NOT STARTED |
 | 8.7 | #24 | "Book replay" on a history row: what the ladder looked like at the cutoff | NOT STARTED |
 | 8.8 | #12 | Colour depth bars by size relative to the book's own median | DONE — bars shade against the book's own median rest rather than its largest, so a level reads as normal-or-not for this book and dust reads as dust |
