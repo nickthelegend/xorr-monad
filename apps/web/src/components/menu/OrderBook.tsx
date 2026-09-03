@@ -271,6 +271,12 @@ export function OrderBook() {
       </div>
       )}
 
+      {b.bids.length > 0 && b.asks.length > 0 ? (
+        <BookPressure bids={b.bids} asks={b.asks} />
+      ) : null}
+
+      {b.marks ? <WhyThisPrice book={book} /> : null}
+
       {b.marks ? <SettlementWindow marks={b.marks} /> : null}
 
       {book.manipulation ? (
@@ -723,6 +729,135 @@ function MoveCost({
           ? `holding it for ${blocks} blocks means paying again every time someone else's resting order refills a level, then paying the spread to unwind.`
           : "this market settles on one block, so buying it once is all it takes — which is why the others do not."}
         {m.up.reachable || m.down.reachable ? "" : " This book is too thin in the levels read to reach that target at all."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The oracle's reasoning, in the order it actually runs.
+ *
+ * Every guard in KuruOracle is documented in the contract and invisible in the
+ * product: a reader sees a price and has to take on faith that anything stood between
+ * the book and it. This walks the same sequence with this block's numbers, so the
+ * refusals are legible when they fire and the passes are legible when they do not.
+ *
+ * Derived from what the API already reports rather than re-implemented — the point is
+ * to show the contract's reasoning, and a second implementation of it here would
+ * eventually disagree with the first.
+ */
+function WhyThisPrice({ book }: { book: Book }) {
+  const b = book.onchain;
+  if (!b) return null;
+  const m = b.marks;
+
+  const steps: { label: string; detail: string; ok: boolean }[] = [
+    {
+      label: "bestBidAsk()",
+      detail: `${px(b.bid)} / ${px(b.ask)}`,
+      ok: b.bid > 0 && b.ask > b.bid,
+    },
+    {
+      label: "both sides present, not crossed",
+      detail: b.bid > 0 && b.ask > b.bid ? "yes" : "no — the oracle reports nothing",
+      ok: b.bid > 0 && b.ask > b.bid,
+    },
+    {
+      label: "spread within the guard",
+      detail: `${b.spreadBps} bps`,
+      ok: b.spreadBps <= 500,
+    },
+  ];
+
+  if (m) {
+    steps.push({
+      label: m.mark === "MICRO" ? "mark: size-weighted" : "mark: midpoint",
+      /**
+       * Name the side that is actually dust.
+       *
+       * This said "on the ask" whatever the book was doing, and the book had flipped —
+       * so it read "370 on the ask is under the 5.0 floor", which is false about a
+       * number printed two lines above it. Either side can be the thin one; ask which.
+       */
+      detail: m.microGuarded
+        ? `guarded to the midpoint — ${
+            m.topBidSize < m.dustFloor
+              ? `${sz(m.topBidSize)} on the bid`
+              : `${sz(m.topAskSize)} on the ask`
+          } is under the ${sz(m.dustFloor)} floor`
+        : px(m.micro),
+      ok: true,
+    });
+    steps.push({
+      label: m.twapWindow > 0 ? `averaged over ${m.twapWindow}s` : "read at this block",
+      detail: m.twapWindow > 0 ? `${Math.round((m.twapWindow * 1000) / 300)} blocks of history` : "no window",
+      ok: true,
+    });
+  }
+
+  steps.push({
+    label: "the price the market settles on",
+    detail: px(b.mid),
+    ok: b.mid > 0,
+  });
+
+  return (
+    <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+      <div className="label">Why this price</div>
+      <div className="mt-2 space-y-1.5">
+        {steps.map((st, i) => (
+          <div key={i} className="flex items-baseline justify-between gap-3 text-[11px]">
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className={st.ok ? "text-green" : "text-red"}>{st.ok ? "✓" : "✗"}</span>
+              <span className="truncate text-white/55">{st.label}</span>
+            </span>
+            <span className="tnum shrink-0 text-white/75">{st.detail}</span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-white/40">
+        Every line is a guard in <span className="text-white">KuruOracle</span>, in the
+        order the contract runs them. Any one of them failing means the oracle reports
+        no price at all and the market refuses to settle — which is the behaviour worth
+        having, and is invisible until something makes it visible.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Which way the book leans, as one bar.
+ *
+ * Resting size is not symmetric and the asymmetry is the thing the microprice exists
+ * to price. Two numbers in a table make a reader do the division; a bar does not.
+ */
+function BookPressure({ bids, asks }: { bids: Level[]; asks: Level[] }) {
+  const bidDepth = bids.reduce((a, l) => a + l.size, 0);
+  const askDepth = asks.reduce((a, l) => a + l.size, 0);
+  const total = bidDepth + askDepth;
+  if (total <= 0) return null;
+  const bidPct = (bidDepth / total) * 100;
+
+  return (
+    <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+      <div className="flex items-baseline justify-between">
+        <div className="label">Book pressure</div>
+        <div className="mono text-[10px] tracking-[0.08em] text-dim">
+          {bidPct >= 50 ? `${bidPct.toFixed(0)}% BID` : `${(100 - bidPct).toFixed(0)}% ASK`}
+        </div>
+      </div>
+      <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#0d0d0d]">
+        <div className="bg-green" style={{ width: `${bidPct}%` }} />
+        <div className="bg-red" style={{ width: `${100 - bidPct}%` }} />
+      </div>
+      <div className="mono mt-1.5 flex justify-between text-[9px] tracking-[0.08em]">
+        <span className="text-green">{sz(bidDepth)} bid</span>
+        <span className="text-red">{sz(askDepth)} ask</span>
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-white/40">
+        Read from the ladder above. This asymmetry is what the size-weighted mark exists
+        to price — a midpoint between two sides carrying very different size is a number
+        neither side would trade at.
       </p>
     </div>
   );
