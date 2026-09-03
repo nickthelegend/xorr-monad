@@ -284,9 +284,9 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 | 8.12 | #38 | Touch drag for band edges on mobile | NOT STARTED |
 | 8.13 | #35/#36 | Shareable ticket permalink and a per-ticket OG card | NOT STARTED |
 | 8.14 | #40/#41 | Settle any due ticket you can see, and batch-settle from the UI via `settleBatch` | NOT STARTED |
-| 8.15 | #39 | One-tap "repeat last band" | NOT STARTED |
-| 8.16 | #42/#43 | Per-market session P&L in the header; real consecutive-win streak counter | NOT STARTED |
-| 8.17 | #49 | Position size presets as a percentage of balance | NOT STARTED |
+| 8.15 | #39 | One-tap "repeat last band" | DONE — AGAIN restores the last accepted shape, clamped to the limits as they stand now. Verified: 1.66x → widened 1.30x → AGAIN → 1.66x |
+| 8.16 | #42/#43 | Per-market session P&L in the header; real consecutive-win streak counter | DONE — session P&L and current streak, derived from settled tickets every render. Verified: three 3s rounds gave `+$1.23  3W` against a balance of $251.23 |
+| 8.17 | #49 | Position size presets as a percentage of balance | DONE — and the presets refuse to offer what the market would reject: on a $250 balance every percentage exceeds the $10 cap, so all four are disabled with the bound named, rather than silently clamped |
 | 8.18 | #50 | Practice mode that fires automatically, so the loop is visible unattended (pairs well with 5.5) | NOT STARTED |
 
 ### 8c — Motion and production polish
@@ -298,11 +298,11 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 | 8.21 | #59 | Shake on rejection (band too tight / no funds) | IN PROGRESS — wired into the refusal branch and the CSS resolves (`shake`, 260ms), but I could not observe the motion: the browser pane throttles animation while hidden, and a refusal is hard to reach on purpose now that the painter cannot offer an illegal band. Needs one human look |
 | 8.22 | #57 | Odometer roll on the price rather than a jump | NOT STARTED |
 | 8.23 | #64 | Boot-sequence loading state instead of a spinner | NOT STARTED |
-| 8.24 | #72 | Real error boundary around **each sheet**. Only `Console3D` has one today. | NOT STARTED |
+| 8.24 | #72 | Real error boundary around **each sheet**. Only `Console3D` has one today. | DONE — one boundary inside `Sheet`, so it covers every screen rather than each call site remembering. Names the screen and the error instead of 'something went wrong' |
 | 8.25 | #73 | Offline detection with an honest banner | DONE — one banner on the real offline/online events. Verified: appears on `offline`, clears on `online`. Offline, three individually-correct error messages read as three outages of three systems when the fact is one |
 | 8.26 | #85 | Mobile viewport correctness at 375px — verify, do not assume | DONE — verified at 375x812 against the public deployment, not assumed: no horizontal overflow, no element past the viewport, the round selector not clipped |
 | 8.27 | #88 | Accessibility pass: focus rings, labels, contrast | DONE — zero unlabelled controls (the stake rail was the one, and now announces its step), `lang` set, and a focus ring that is visible on both the cream shell and the black screen. Verified by tabbing: `:focus-visible` matches and the amber ring computes |
-| 8.28 | #94 | Test coverage report | NOT STARTED |
+| 8.28 | #94 | Test coverage report | DONE — `pnpm coverage` (needs `--ir-minimum`; coverage disables the optimizer and RangeMarket does not fit without it). Numbers in `docs/VERIFY.md`, including the two adapters at 0% |
 
 ---
 

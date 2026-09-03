@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { SheetBoundary } from "./SheetBoundary";
 
 /**
  * The console's bottom sheet. Slides over the device rather than navigating away, so
@@ -50,7 +51,10 @@ export function Sheet({
           </div>
         ) : null}
 
-        <div className="flex-1 overflow-y-auto px-4 pb-6">{children}</div>
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          {/* Every screen goes through here, so one boundary covers all of them. */}
+          <SheetBoundary title={title ?? "This screen"}>{children}</SheetBoundary>
+        </div>
       </div>
     </div>
   );

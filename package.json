@@ -27,7 +27,8 @@
     "check:room": "node tools/checks/room-round.mjs",
     "typecheck": "pnpm --filter @xorr/sdk exec tsc --noEmit && pnpm --filter @xorr/web exec tsc --noEmit",
     "check:kuru": "node tools/checks/kuru-book.mjs",
-    "demo": "tools/demo.sh"
+    "demo": "tools/demo.sh",
+    "coverage": "cd packages/contracts && forge coverage --ir-minimum --report summary"
   },
   "devDependencies": {
     "typescript": "^5.7.3",

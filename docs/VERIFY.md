@@ -56,6 +56,37 @@ of both.
 | A room's pot closes out to zero | `pnpm check:room` | House takes its fee, players split the rest, nothing left over |
 | The whole stack is up | `curl -s localhost:3000/api/health` | `chain`, `keeper` and `book` reported separately |
 
+## Coverage
+
+```bash
+pnpm coverage
+```
+
+`--ir-minimum` is not optional: coverage instrumentation disables the optimizer, and
+`RangeMarket` does not fit in the stack without it.
+
+| Contract | Lines | Branches |
+|---|---|---|
+| `OracleRouter` | 100% | 100% |
+| `KeeperOracle` | 92% | 83% |
+| `KuruOracle` | 92% | 57% |
+| `XorrVault` | 85% | 23% |
+| `RoomMarket` | 82% | 43% |
+| `RangeMarket` | 74% | 36% |
+| `ChainlinkOracle` | **0%** | **0%** |
+| `PythOracle` | **0%** | **0%** |
+
+The two zeros are real and worth stating: neither adapter is deployed by
+`Deploy.s.sol` in any configuration used here, and neither has a test. They are wired
+for a network that has those feeds; on this one the price comes from Kuru's book and
+the keeper. Do not read them as exercised.
+
+Branch coverage is well below line coverage everywhere, which is what you would expect
+from contracts that are mostly guards — most branches are reverts, and a revert is
+covered only by a test that deliberately triggers it. The guards that carry money are
+the ones with tests; the arithmetic is covered from the other direction by 1,728 quotes
+diffed against a second implementation.
+
 ## Nothing is mocked
 
 ```bash

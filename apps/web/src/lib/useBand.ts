@@ -116,6 +116,24 @@ export function useBand(market: MarketDef, tier: number, spot: bigint) {
     [clamp],
   );
 
+  /**
+   * Restore a whole band shape, clamped to what the market will currently accept.
+   *
+   * "The same band again" is not the same numbers again — the limits move with sigma
+   * and with the round, so a shape that was legal a minute ago can be outside them now.
+   * Clamping means the button always produces a band the market will take, which is the
+   * point of it; silently producing a rejected one would be worse than not offering it.
+   */
+  const setShape = useCallback(
+    (shape: { lowHalf1e4: bigint; highHalf1e4: bigint }) => {
+      setBand({
+        lowHalf1e4: clamp(shape.lowHalf1e4),
+        highHalf1e4: clamp(shape.highHalf1e4),
+      });
+    },
+    [clamp],
+  );
+
   const setEdge = useCallback(
     (side: "low" | "high", half1e4: bigint) => {
       setBand((b) =>
@@ -130,6 +148,7 @@ export function useBand(market: MarketDef, tier: number, spot: bigint) {
   return {
     band: effective,
     setBand,
+    setShape,
     setEdge,
     nudge,
     limits,

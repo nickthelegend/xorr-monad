@@ -8,6 +8,7 @@ import {
   fmtMultiplier,
   fmtPrice,
   fmtUsd,
+  DEFAULT_CONFIG,
   payoutFor,
   roundLabel,
 } from "@xorr/sdk";
@@ -28,6 +29,17 @@ import { LIVE_CONFIGURED } from "@/lib/chain";
 
 /** Stake ladder, in 6-decimal asset units. The contract accepts $1 to $10. */
 const STAKE_STEPS = [1_000_000n, 1_500_000n, 2_000_000n, 3_000_000n, 5_000_000n, 10_000_000n];
+
+/**
+ * Stake as a share of what you actually hold, alongside the fixed rail.
+ *
+ * The rail is a hardware control with six detents and it should stay one — but a fixed
+ * ladder means the same $1.50 whether the desk is at $250 or $12, and at $12 the sixth
+ * detent is more than half the balance with nothing on screen saying so. The percentage
+ * keys answer "how much of what I have" directly, which is the question the player is
+ * actually asking, and they are clamped to the same floor the market enforces.
+ */
+const PERCENT_PRESETS = [5, 10, 25, 50] as const;
 
 const COIN_TONE: Record<string, string> = {
   BTC: "#f7931a",
@@ -60,6 +72,10 @@ export function PlayScreen() {
    * churn to play a 260ms wobble. Clearing on animationend and re-arming on the next
    * frame restarts it without touching anything below.
    */
+  /** The shape of the last band that the market actually accepted. */
+  const [lastBand, setLastBand] = useState<{ lowHalf1e4: bigint; highHalf1e4: bigint } | null>(
+    null,
+  );
   const [shaking, setShaking] = useState(false);
   const shake = useCallback(() => {
     setShaking(false);
@@ -102,7 +118,15 @@ export function PlayScreen() {
     wasSilent.current = !prefs.sound;
   }, [prefs.sound, play]);
 
-  const stake = STAKE_STEPS[stakeStep - 1];
+  /**
+   * A percentage press wins until the rail is touched.
+   *
+   * Two controls setting one number needs an order. The rail is the physical one, so
+   * moving it always takes over — nothing is more confusing than a key that appears to
+   * do nothing because an invisible override is still in force.
+   */
+  const [pctStake, setPctStake] = useState<bigint | null>(null);
+  const stake = pctStake ?? STAKE_STEPS[stakeStep - 1];
   const payout = payoutFor(stake, band.multiplierBps);
   const round = state.market.rounds[state.tier];
 
@@ -146,7 +170,10 @@ export function PlayScreen() {
 
   const doFire = useCallback(() => {
     const r = fire(band.low, band.high, stake);
-    if (r.ok) play("fire");
+    if (r.ok) {
+      play("fire");
+      if (band.band) setLastBand({ ...band.band });
+    }
     if (!r.ok) {
       play("reject");
       const e = r.error;
@@ -187,6 +214,39 @@ export function PlayScreen() {
     return () => window.removeEventListener("keydown", onKey);
   }, [doFire, band, play]);
 
+  /**
+   * Session P&L and the current streak, both counted from settled tickets.
+   *
+   * Not stored anywhere and not incremented on events: derived from the tape every
+   * render, so they cannot drift out of agreement with the history screen the way a
+   * running total does the first time a settlement is missed or replayed. The streak is
+   * the current run, which is the only one worth putting on the deck — the best-ever run
+   * is a trophy and lives on the achievements screen.
+   *
+   * Deliberately NOT memoised on `state.tickets`. The paper engine mutates that array
+   * in place and re-renders through a counter, so its identity never changes and a memo
+   * keyed on it computes once, at zero tickets, and never again. It is a short loop over
+   * one session's tickets; correctness is worth more here than the memo was.
+   */
+  const session = ((): { pnl: bigint; streak: number; kind: "won" | "lost" | null; n: number } => {
+    const settled = state.tickets
+      .filter((t) => t.status === "won" || t.status === "lost")
+      .sort((a, b) => a.openBlock - b.openBlock);
+
+    let pnl = 0n;
+    for (const t of settled) pnl += t.status === "won" ? t.payout - t.stake : -t.stake;
+
+    let streak = 0;
+    let kind: "won" | "lost" | null = null;
+    for (let i = settled.length - 1; i >= 0; i--) {
+      const st = settled[i].status as "won" | "lost";
+      if (kind === null) kind = st;
+      else if (st !== kind) break;
+      streak += 1;
+    }
+    return { pnl, streak, kind, n: settled.length };
+  })();
+
   const coins = Math.round(Number(state.balance) / 25_000_000); // one coin per $25
 
   // The console opens on paper: a first round in under fifteen seconds, no wallet and
@@ -198,7 +258,10 @@ export function PlayScreen() {
       <DeviceFrame
         stakeStep={stakeStep}
         maxStake={STAKE_STEPS.length}
-        onStakeStep={setStakeStep}
+        onStakeStep={(n) => {
+          setPctStake(null); // the physical control always takes over
+          setStakeStep(n);
+        }}
         soundOn={prefs.sound}
         onToggleSound={() => setPref("sound", !prefs.sound)}
         running={state.running}
@@ -237,6 +300,20 @@ export function PlayScreen() {
               <div className="tnum mt-1 text-[15px] font-semibold text-white">
                 {fmtUsd(state.balance)}
               </div>
+              {session.n > 0 ? (
+                <div className="mono mt-1 flex items-center justify-end gap-2 text-[9px] tracking-[0.08em]">
+                  <span className={session.pnl >= 0n ? "text-green" : "text-red"}>
+                    {session.pnl >= 0n ? "+" : "−"}
+                    {fmtUsd(session.pnl < 0n ? -session.pnl : session.pnl)}
+                  </span>
+                  {session.streak > 1 ? (
+                    <span className={session.kind === "won" ? "text-green" : "text-red"}>
+                      {session.streak}
+                      {session.kind === "won" ? "W" : "L"}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -324,6 +401,56 @@ export function PlayScreen() {
                 through a volatility regime change — so it is not a truthful forecast to
                 put in front of a player. The multiplier is the actual contract; the
                 model and its bias are explained in How it works. */}
+            {/* Stake as a share of the balance, and the last band again. */}
+            <div className="mt-2 flex items-center gap-1">
+              {PERCENT_PRESETS.map((pct) => {
+                const want = (state.balance * BigInt(pct)) / 100n;
+                /**
+                 * A preset the market would refuse is not offered.
+                 *
+                 * The market caps a ticket at $10 and floors it at $1, so on a healthy
+                 * balance most percentages land outside that — and a key that sets a
+                 * stake the desk then rejects with "CAN'T FIRE" is worse than a key that
+                 * is visibly unavailable. Disabled with the cap named, rather than
+                 * silently clamped to a number the label does not describe.
+                 */
+                const legal = want >= DEFAULT_CONFIG.minStake && want <= DEFAULT_CONFIG.maxStake;
+                const on = legal && pctStake === want;
+                return (
+                  <button
+                    key={pct}
+                    disabled={!legal}
+                    title={
+                      legal
+                        ? `${pct}% of your balance`
+                        : `${pct}% is ${fmtUsd(want)} — outside the ${fmtUsd(DEFAULT_CONFIG.minStake)}–${fmtUsd(DEFAULT_CONFIG.maxStake)} the market takes`
+                    }
+                    onClick={() => {
+                      setPctStake(want);
+                      play("key");
+                    }}
+                    className={`mono flex-1 rounded py-1 text-[9px] tracking-[0.08em] disabled:opacity-25 ${
+                      on ? "bg-amber text-black" : "bg-white/8 text-dim"
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                );
+              })}
+              <button
+                disabled={!lastBand}
+                onClick={() => {
+                  if (!lastBand) return;
+                  band.setShape(lastBand);
+                  play("key");
+                }}
+                title="repeat the last band you fired"
+                className="mono flex-[1.4] rounded bg-white/8 py-1 text-[9px] tracking-[0.08em] text-dim disabled:opacity-30"
+              >
+                AGAIN
+              </button>
+            </div>
+
             <p className="mono mt-2 text-[9px] leading-[1.45] tracking-[0.08em] text-dim">
               STACK AS MANY AS YOU LIKE.
               <br />
