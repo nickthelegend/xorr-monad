@@ -17,6 +17,9 @@ const CONTRACTS = [
   ["KeeperOracle", "KeeperOracle.sol"],
   ["KuruOracle", "KuruOracle.sol"],
   ["OracleRouter", "OracleRouter.sol"],
+  // Kuru's own book, so the console can read it directly where XORR's oracle is not
+  // deployed — a hosted build with no chain of its own can still show the real market.
+  ["IKuruOrderBook", "IKuruOrderBook.sol"],
 ];
 
 const out = [

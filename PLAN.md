@@ -183,7 +183,7 @@ at this machine to see it. A judge who cannot run the project scores what they c
 
 | # | Task | Status |
 |---|---|---|
-| 5.1 | **Decide the public target.** Options: (a) Monad testnet deploy, (b) a hosted anvil-fork behind a public RPC, (c) paper-desk-only public build with live Kuru reads via `/api/kuru` against public Monad RPC. (c) is cheapest and still demonstrates the order-book integration, because reading the book needs no deployment of ours. Write the decision and its trade-offs into this file before building. | NOT STARTED |
+| 5.1 | **Decide the public target.** Options: (a) Monad testnet deploy, (b) a hosted anvil-fork behind a public RPC, (c) paper-desk-only public build with live Kuru reads via `/api/kuru` against public Monad RPC. (c) is cheapest and still demonstrates the order-book integration, because reading the book needs no deployment of ours. Write the decision and its trade-offs into this file before building. | DONE — decided **(c)**, and the reasoning is below the table. (a) is blocked: Monad testnet needs a funded key and `PRIVATE_KEY` is empty, with no scriptable faucet. (b) needs a paid always-on host for anvil, and its forked AUSD holder drains as people use it. |
 | 5.2 | Deploy `apps/web` to a public URL (Vercel or Railway). Set `NEXT_PUBLIC_*` for the chosen target. **`XORR_ALLOW_UNLOCKED_ACCOUNTS` must be unset in production** — it enables `eth_sendTransaction` and account-unlock methods through the proxy. | NOT STARTED |
 | 5.3 | If 5.1 chooses a chain deploy: run `Deploy.s.sol` against Monad testnet with `KURU_MON_AUSD` set, commit `deployments/<chainid>.json`, fund the vault, run the keeper on a host that stays up. | NOT STARTED |
 | 5.4 | Verify contracts on the target explorer and emit verification metadata in the deploy output (idea #93). | NOT STARTED |
@@ -193,6 +193,31 @@ at this machine to see it. A judge who cannot run the project scores what they c
 | 5.8 | Health endpoint `/api/health` reporting chain reachability, keeper freshness and book status (idea #81) — so "is the demo up?" is one request. | DONE — happy path and the degraded path both exercised: stopping the keeper flipped it to `degraded` with the real print age |
 | 5.9 | Favicon, web manifest, and an OG preview image. `layout.tsx` has `openGraph` title/description but **no image and no icons**. | DONE — `icon.svg`, `manifest.webmanifest` and a generated `opengraph-image`; all three serve, the OG render visually checked |
 | 5.10 | README diagram of the settlement path: wallet → RangeMarket → OracleRouter → KuruOracle → Kuru book (idea #96). | DONE — mermaid settlement path in the README, with the single off-chain hop marked |
+
+### 5.1 — the public target, decided
+
+**Deploy the console to Vercel's free tier, with the paper desk fully live and Kuru's
+book read directly from Monad mainnet. Our own contracts stay on the local fork.**
+
+What a judge gets without installing anything: the real console, opening on a real
+Binance price and replaying real one-second tape through the identical pricing kernel
+the contracts use, and a live order-book panel reading Kuru's deployed MON-AUSD market
+on Monad mainnet at a block they can check.
+
+What they do not get, and why it is said rather than hidden: firing a real ticket. That
+needs XORR's own contracts deployed to a public chain, which needs either a funded
+Monad testnet key — there is none in the repo, and no faucet that can be scripted — or
+a paid always-on host running the mainnet fork. Neither exists here, so the live desk
+on the public build points at `pnpm demo`, which brings the whole thing up locally in
+one command against real Monad state.
+
+The honest cost of this choice: on the public URL, the sponsor-track claim is
+demonstrated one step short of its strongest form. The panel shows Kuru's real book
+read on-chain, but read directly rather than through `KuruOracle` — because our oracle
+is a deployed contract and there is nothing to deploy it to for free. The guards that
+make the integration interesting (thin, crossed, one-sided, dust) live in that contract,
+so they are provable in one command locally and only described on the hosted build. The
+panel says exactly this rather than implying the oracle is in the path.
 
 ## Phase 6 — Solvency hardening and operations *(IN PROGRESS)*
 

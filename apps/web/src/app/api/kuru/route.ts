@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { KuruOracleAbi } from "@xorr/sdk";
+import { IKuruOrderBookAbi, KuruOracleAbi } from "@xorr/sdk";
 
 /**
  * Kuru's order book, as XORR reads it.
@@ -47,6 +47,15 @@ function assess(
   bids: Level[],
   asks: Level[],
   venue: { trades24h?: number | null; volume1h?: number | null } | null,
+  /**
+   * Whether depth could be measured at all.
+   *
+   * Where the ladder is unavailable — no oracle deployed, so no on-chain decoder for
+   * Kuru's packed L2 bytes — an empty ladder means "not measured", not "empty". Scoring
+   * it as thin would put a false verdict on a healthy book, which is precisely the kind
+   * of plausible-looking wrong answer the rest of this file exists to refuse.
+   */
+  depthKnown = true,
 ) {
   if (!bid || !ask) {
     return { health: "one-sided" as const, tradeable: false, reason: "one side of the book is empty" };
@@ -67,11 +76,20 @@ function assess(
       reason: `spread is ${spreadBps.toFixed(0)} bps — the midpoint is not a price anyone quoted`,
     };
   }
-  if (depthNear < 100) {
+  if (depthKnown && depthNear < 100) {
     return {
       health: "thin" as const,
       tradeable: false,
       reason: `only ${depthNear.toFixed(0)} within 1% of the mid`,
+    };
+  }
+  if (!depthKnown) {
+    return {
+      health: "unmeasured" as const,
+      tradeable: false,
+      reason:
+        "the touch is real, but depth needs KuruOracle's on-chain decoder and it is not " +
+        "deployed here — so how much rests behind this quote is unknown, not zero",
     };
   }
 
@@ -133,10 +151,74 @@ async function venueStats(market: string) {
   }
 }
 
+/**
+ * Read Kuru's book directly, for a deployment that has no XORR oracle of its own.
+ *
+ * The hosted build has no chain to deploy to, so `KuruOracle` is not in the path there
+ * — but Kuru's market is, on Monad mainnet, and refusing to show it would be a worse
+ * answer than showing it and saying what is missing. This calls the venue's own
+ * contract with exactly the same reads the oracle performs, and the response carries
+ * `via: "book"` so the panel can state plainly that the guards live in a contract that
+ * is not deployed here rather than implying they are running.
+ *
+ * It is deliberately NOT a fallback for a failed oracle read. It is only used where no
+ * oracle address is configured at all. A deployment that has an oracle and cannot reach
+ * it reports the failure.
+ */
+async function readBookDirect(pub: ReturnType<typeof createPublicClient>, book: Address) {
+  const [top, params, blockNumber] = await Promise.all([
+    pub.readContract({
+      address: book,
+      abi: IKuruOrderBookAbi,
+      functionName: "bestBidAsk",
+    }) as Promise<readonly [bigint, bigint]>,
+    pub.readContract({
+      address: book,
+      abi: IKuruOrderBookAbi,
+      functionName: "getMarketParams",
+    }) as Promise<
+      readonly [number, bigint, Address, bigint, Address, bigint, number, bigint, bigint, bigint]
+    >,
+    pub.getBlockNumber(),
+  ]);
+
+  // Kuru quotes bestBidAsk with 18 decimals; XORR settles on 8.
+  const bid = Number(top[0] / 10_000_000_000n) / 1e8;
+  const ask = Number(top[1] / 10_000_000_000n) / 1e8;
+  const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : 0;
+  const spreadBps = mid > 0 ? Math.round(((ask - bid) / mid) * 10_000) : 0;
+
+  const pricePrecision = Number(params[0]);
+  const sizePrecision = Number(params[1]);
+
+  /**
+   * No ladder here, on purpose.
+   *
+   * `getL2Book` hands back abi-packed words, which is why KuruOracle carries an
+   * on-chain decoder — and decoding them a second time in TypeScript would be exactly
+   * the duplicated implementation this repo diffs 1,728 quotes to avoid. Where the
+   * oracle is not deployed, the panel shows the touch and the venue's own rules, and
+   * says the ladder needs the decoder.
+   */
+  return {
+    blockNumber,
+    bid,
+    ask,
+    mid,
+    spreadBps,
+    params: {
+      tickSize: Number(params[6]) / pricePrecision,
+      minSize: Number(params[7]) / sizePrecision,
+      maxSize: Number(params[8]) / sizePrecision,
+      takerFeeBps: Number(params[9]),
+    },
+  };
+}
+
 export async function GET() {
-  if (!KURU_ORACLE || !KURU_BOOK) {
+  if (!KURU_BOOK) {
     return NextResponse.json(
-      { configured: false, reason: "no Kuru oracle deployed for this environment" },
+      { configured: false, reason: "no Kuru market configured for this environment" },
       { headers: { "cache-control": "no-store" } },
     );
   }
@@ -148,6 +230,47 @@ export async function GET() {
     rpcUrls: { default: { http: [RPC] } },
   });
   const pub = createPublicClient({ chain, transport: http(RPC) });
+
+  /**
+   * No oracle deployed here — read the venue directly and say so.
+   *
+   * This is the hosted build's situation: there is a real Kuru market on Monad mainnet
+   * and no chain to deploy XORR's oracle to. Showing the real book while stating that
+   * the guards are not in the path is better than showing nothing, and much better than
+   * showing it as though the oracle produced it.
+   */
+  if (!KURU_ORACLE) {
+    try {
+      const direct = await readBookDirect(pub, KURU_BOOK);
+      const stats = await venueStats(KURU_BOOK);
+      return NextResponse.json(
+        {
+          configured: true,
+          via: "book",
+          chainId: CHAIN_ID,
+          market: KURU_BOOK,
+          onchain: {
+            block: direct.blockNumber.toString(),
+            bid: direct.bid,
+            ask: direct.ask,
+            mid: direct.mid,
+            spreadBps: direct.spreadBps,
+            bids: [],
+            asks: [],
+          },
+          params: direct.params,
+          ...assess(direct.bid, direct.ask, [], [], stats, false),
+          venue: stats,
+        },
+        { headers: { "cache-control": "no-store" } },
+      );
+    } catch (e) {
+      return NextResponse.json(
+        { configured: true, via: "book", error: (e as Error).message },
+        { status: 502, headers: { "cache-control": "no-store" } },
+      );
+    }
+  }
 
   try {
     const [top, depth, marks, params, cfg, stats] = await Promise.all([
@@ -221,6 +344,7 @@ export async function GET() {
     return NextResponse.json(
       {
         configured: true,
+        via: "oracle",
         chainId: CHAIN_ID,
         market: KURU_BOOK,
         oracle: KURU_ORACLE,

@@ -1,0 +1,77 @@
+name: CI
+
+# The deterministic half of the verification: everything that needs no chain, no
+# network and no funded account. The claim checks under tools/checks/ read a live
+# deployment or a live exchange, so they belong in `edge.yml` (scheduled) and in
+# `pnpm demo` locally — running them here would make the build flaky for reasons that
+# have nothing to do with the change under test.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  solidity:
+    name: Solidity — tests and Solidity/TypeScript parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: forge test
+        run: pnpm test:contracts
+      - name: 1,728 quotes must be identical between the two implementations
+        run: pnpm parity
+
+  typescript:
+    name: TypeScript — types and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test:sdk
+      - name: The console must build
+        run: pnpm --filter @xorr/web build
+
+  no-mocks:
+    name: Nothing mocked in shipped code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: A mock reachable from src/ is a failed build, not a review comment
+        run: |
+          set -euo pipefail
+          # test/ is excluded on purpose: the one test double lives there and is
+          # unreachable from src/ or any deploy script. Everything else must be clean.
+          if grep -rniE '\b(mock|stub|fakeData|dummyData)\b' \
+               apps/web/src packages/sdk/src \
+               packages/contracts/src packages/contracts/script tools; then
+            echo "::error::Shipped code must not contain mocks or stubs."
+            exit 1
+          fi
+          echo "clean"
+      - name: .env.example must document every variable the code reads
+        run: |
+          set -euo pipefail
+          missing=0
+          for v in $(grep -rhoE 'process\.env\.[A-Z_0-9]+' \
+                       apps/web/src packages/sdk/src tools | sed 's/process\.env\.//' | sort -u); do
+            grep -q "^$v=" .env.example || { echo "::error::.env.example omits $v"; missing=1; }
+          done
+          exit $missing

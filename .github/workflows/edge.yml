@@ -1,0 +1,37 @@
+name: Vault edge
+
+# The property most likely to regress without anyone touching the code.
+#
+# The pricing tables are fitted to a volatility regime. When the market changes regime
+# underneath them, a round that was comfortably vault-positive can turn player-positive
+# with no commit to blame — it has happened three times in this repo's history. This
+# runs the measurement against fresh tape on a schedule so the change is caught here
+# rather than by whoever is standing in front of a judge.
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "packages/sdk/src/remark.ts"
+      - "packages/sdk/src/pricing.ts"
+      - "packages/sdk/src/calibrate-all.ts"
+      - "packages/sdk/src/generated/markets.ts"
+      - "tools/checks/paper-calibration.mjs"
+
+jobs:
+  edge:
+    name: Every round vault-positive on four windows of real tape
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: pnpm check:edge
+        run: pnpm check:edge
+      - name: pnpm check:width
+        run: pnpm check:width

@@ -9,6 +9,8 @@ interface Level {
 
 interface Book {
   configured: boolean;
+  /** Which path produced these numbers: XORR's oracle, or Kuru's book read directly. */
+  via?: "oracle" | "book";
   market?: string;
   oracle?: string;
   onchain?: {
@@ -55,6 +57,7 @@ const HEALTH: Record<string, { tone: string; label: string }> = {
   quiet: { tone: "text-amber", label: "QUIET" },
   "one-sided": { tone: "text-red", label: "ONE-SIDED" },
   crossed: { tone: "text-red", label: "CROSSED" },
+  unmeasured: { tone: "text-dim", label: "DEPTH UNKNOWN" },
 };
 
 const px = (v: number) => v.toFixed(6);
@@ -165,7 +168,20 @@ export function OrderBook() {
         {b.marks ? <MarkExplainer marks={b.marks} /> : null}
       </div>
 
-      {/* ---- the ladder */}
+      {/* ---- the ladder, where there is a decoder to produce it */}
+      {book.via === "book" ? (
+        <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+          <div className="label">Ladder unavailable here</div>
+          <p className="mt-2 text-[11px] leading-relaxed text-white/45">
+            Kuru returns L2 depth as packed bytes, so the ladder comes from{" "}
+            <span className="text-white">KuruOracle</span>&apos;s on-chain decoder — and
+            this build has no chain to deploy it to. Decoding the same bytes a second
+            time in the browser would be exactly the duplicated implementation this
+            project diffs 1,728 quotes to avoid. Run <span className="text-white">pnpm
+            demo</span> to see the ladder, the depth guards and the mark.
+          </p>
+        </div>
+      ) : (
       <div className="mono mt-3 overflow-hidden rounded-2xl bg-[#0d0d0d]">
         <div className="flex items-center justify-between px-3 py-2 text-[9px] tracking-[0.12em] text-dim">
           <span>PRICE</span>
@@ -185,6 +201,7 @@ export function OrderBook() {
           <Row key={`b${i}`} level={l} max={maxSize} side="bid" />
         ))}
       </div>
+      )}
 
       {/* ---- venue activity, clearly separated from anything used for pricing */}
       {book.venue ? (
@@ -224,7 +241,26 @@ export function OrderBook() {
       <div className="mt-3 rounded-2xl bg-[#141414] p-4">
         <div className="label">Provenance</div>
         <Addr label="Kuru market" value={book.market} />
-        <Addr label="XORR oracle" value={book.oracle} />
+        {book.via === "book" ? (
+          <div className="mt-2 flex items-baseline justify-between gap-3">
+            <span className="label shrink-0">XORR oracle</span>
+            <span className="text-[11px] text-amber">not deployed here</span>
+          </div>
+        ) : (
+          <Addr label="XORR oracle" value={book.oracle} />
+        )}
+        {book.via === "book" ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-white/45">
+            These numbers came from a call to Kuru&apos;s own contract at the block
+            above — the market is real and so is the read. What is not in the path here
+            is <span className="text-white">KuruOracle</span>, which is where the mark
+            and the thin-book guards live. This build has no chain of its own to deploy
+            it to, so it is described rather than demonstrated:{" "}
+            <span className="text-white">pnpm demo</span> brings it up against real
+            Monad state, and <span className="text-white">pnpm check:kuru</span> proves
+            it against this same market.
+          </p>
+        ) : (
         <p className="mt-3 text-[11px] leading-relaxed text-white/45">
           XORR&apos;s MON mark is{" "}
           {book.onchain?.marks?.mark === "MICRO"
@@ -233,6 +269,7 @@ export function OrderBook() {
           , read on-chain by <span className="text-white">KuruOracle</span>. No relayer,
           no API, nothing off-chain between the venue and the price.
         </p>
+        )}
       </div>
     </div>
   );
