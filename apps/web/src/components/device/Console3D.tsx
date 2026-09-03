@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { BufferAttribute, BufferGeometry, Color, type Group } from "three";
 import { CONSOLE_MATERIALS, buildConsole } from "@xorr/sdk";
@@ -110,14 +110,58 @@ function useWebGL() {
   return ok;
 }
 
+/**
+ * Make sure the canvas ever gets measured.
+ *
+ * react-three-fiber sizes its canvas from a ResizeObserver, and Chrome does not deliver
+ * ResizeObserver callbacks to a hidden tab — nor does it deliver the missed one when
+ * the tab becomes visible, because by then the element's size has not *changed*. A page
+ * opened in a background tab (cmd-click, a restored session, a link opened to read
+ * later) therefore mounts the canvas at its 300x150 default and leaves it there: the
+ * hero is permanently blank, with no error anywhere, and the only thing that fixes it is
+ * the user resizing their window.
+ *
+ * So: after mount, and again whenever the document becomes visible, compare the canvas
+ * to the box it is supposed to fill and dispatch a resize if they disagree.
+ * react-use-measure listens for that, and re-measures. It is a nudge rather than a
+ * reimplementation — the library still owns the sizing.
+ */
+function useEnsureMeasured(wrap: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const check = () => {
+      const el = wrap.current;
+      const canvas = el?.querySelector("canvas");
+      if (!el || !canvas) return;
+      const box = el.getBoundingClientRect();
+      if (box.width < 1 || box.height < 1) return;
+      if (Math.abs(canvas.clientWidth - box.width) > 1) {
+        window.dispatchEvent(new Event("resize"));
+      }
+    };
+
+    // After the first paint, and once more a beat later for a slow hydration.
+    const raf = requestAnimationFrame(check);
+    const timer = setTimeout(check, 400);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [wrap]);
+}
+
 export function Console3D({ spin = true }: { spin?: boolean }) {
   const webglAvailable = useWebGL();
   const [contextLost, setContextLost] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEnsureMeasured(wrap);
 
   if (!webglAvailable || contextLost) return <ConsoleUnavailable />;
 
   return (
     <CanvasBoundary>
+    <div ref={wrap} className="h-full w-full">
     <Canvas
       // A GPU reset, a backgrounded tab, or a page that has been open long enough to
       // exhaust the browser's context budget all take the canvas away without throwing.
@@ -147,6 +191,7 @@ export function Console3D({ spin = true }: { spin?: boolean }) {
 
       <ConsoleModel spin={spin} />
     </Canvas>
+    </div>
     </CanvasBoundary>
   );
 }
