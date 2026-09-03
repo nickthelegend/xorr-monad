@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   MARKETS,
@@ -52,13 +52,41 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
     setTimeout(() => setFlash(null), 2600);
   }, []);
 
+  /**
+   * Anyone can poke an expired ticket, so the console shows the whole queue.
+   *
+   * The market's own due tickets, whoever opened them — settlement is permissionless
+   * and a desk that only ever settles its own quietly implies it is not.
+   */
+  const due = state.dueTickets;
+
+  /** The newest ticket this account owns, for the shareable permalink. */
+  const latestTicket =
+    state.tickets.length > 0
+      ? state.tickets.reduce((a, b) => (b.id > a.id ? b : a)).id.toString()
+      : null;
+
   // Anyone can poke an expired ticket; the console pokes its own.
   const dueId = state.tickets.find(
     (t) => t.status === 0 && Number(state.block) >= t.expiryBlock,
   )?.id;
 
+  /**
+   * Poke each expired ticket once, not once per render.
+   *
+   * `live` is a fresh object every render, so an effect that depends on it re-runs
+   * constantly — and each run enqueued another settle for the same ticket. With one
+   * transaction at a time that backlog is unbounded, and anything the player then asks
+   * for waits behind it. Remember which ids have been attempted and let a real failure
+   * be surfaced once rather than retried forever; the keeper is the thing whose job it
+   * is to keep trying.
+   */
+  const attempted = useRef(new Set<string>());
   useEffect(() => {
     if (dueId === undefined || state.pending) return;
+    const key = String(dueId);
+    if (attempted.current.has(key)) return;
+    attempted.current.add(key);
     void live.settle(dueId).catch((e) => say(String((e as Error).message).slice(0, 60)));
   }, [dueId, state.pending, live, say]);
 
@@ -236,6 +264,24 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
               {market.rounds[tier].seconds}S ROUND ·{" "}
               {state.account ? `${state.account.slice(0, 6)}…` : "NOT CONNECTED"}
             </p>
+
+            {due.length > 0 ? (
+              <button
+                onClick={() =>
+                  void live
+                    .settleAllDue(due.map((t) => t.id))
+                    .then((h) => say(`SETTLED ${due.length} · ${h.slice(0, 10)}…`))
+                    .catch((e) =>
+                      say(String((e as Error).message).split("\n")[0].slice(0, 60)),
+                    )
+                }
+                disabled={Boolean(state.pending)}
+                title="settleBatch — the contract lets anyone settle an expired ticket, not only its owner"
+                className="mono mt-2 w-full rounded-lg bg-white/8 py-1.5 text-[9px] tracking-[0.08em] text-amber disabled:opacity-40"
+              >
+                SETTLE {due.length} DUE FOR THE MARKET
+              </button>
+            ) : null}
           </div>
           <FireKey
             onClick={() => void doFire()}
@@ -286,6 +332,22 @@ export function LiveConsole({ onBackToDemo }: { onBackToDemo: () => void }) {
           ) : (
             <span className="text-amber">{state.lastTx.hash.slice(0, 18)}…</span>
           )}
+          {/*
+            * A link to the ticket itself, not to the transaction.
+            *
+            * The explorer link proves the transaction happened; this one shows what it
+            * produced, rendered from the contract for whoever opens it. That is the
+            * shareable artifact — a screenshot of a result is a claim, and this is the
+            * chain answering for itself.
+            */}
+          {latestTicket ? (
+            <>
+              {" · "}
+              <a href={`/t/${latestTicket}`} className="text-white/60 underline">
+                ticket #{latestTicket}
+              </a>
+            </>
+          ) : null}
         </p>
       ) : (
         <p className="mono pb-6 text-center text-[10px] text-white/25">

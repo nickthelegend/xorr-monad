@@ -36,12 +36,15 @@ export function MenuSheet({
   tickets,
   pnl,
   onReset,
+  onAttract,
 }: {
   onClose: () => void;
   balance: bigint;
   tickets: PaperTicket[];
   pnl: bigint;
   onReset: () => void;
+  /** Start attract mode: the desk plays itself until someone touches it. */
+  onAttract?: () => void;
 }) {
   const [view, setView] = useState<View>("menu");
   const back = () => setView("menu");
@@ -232,6 +235,16 @@ export function MenuSheet({
 
       <div className="mt-3 space-y-2">
         <Row icon="🏅" label="All Achievements" onClick={() => setView("awards")} />
+        {onAttract ? (
+          <Row
+            icon="▶️"
+            label="Watch it play itself"
+            onClick={() => {
+              onAttract();
+              onClose();
+            }}
+          />
+        ) : null}
         <Row icon="🎯" label="Rooms · play against other people" onClick={() => setView("rooms")} />
         <Row icon="🏦" label="The vault · take the house side" onClick={() => setView("vault")} />
         <Row icon="🧭" label="How it works" onClick={() => setView("howto")} />

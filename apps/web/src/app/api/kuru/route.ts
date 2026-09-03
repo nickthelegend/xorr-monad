@@ -272,7 +272,7 @@ async function routedSource(pub: ReturnType<typeof createPublicClient>, router: 
   return { source, label: text };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!KURU_BOOK) {
     return NextResponse.json(
       { configured: false, reason: "no Kuru market configured for this environment" },
@@ -287,6 +287,17 @@ export async function GET() {
     rpcUrls: { default: { http: [RPC] } },
   });
   const pub = createPublicClient({ chain, transport: http(RPC) });
+
+  /**
+   * Read the book as it was at a past block.
+   *
+   * The ladder is a contract call, so "what did this book look like then" is the same
+   * call with a block tag — no snapshot to store, no archive of our own to trust. That
+   * is worth more than persisting a copy at open time would be: a stored snapshot is
+   * something we asserted, and this is something anyone can re-derive.
+   */
+  const atParam = new URL(req.url).searchParams.get("block");
+  const atBlock = atParam && /^\d+$/.test(atParam) ? BigInt(atParam) : undefined;
 
   /**
    * No oracle deployed here — read the venue directly and say so.
@@ -335,24 +346,28 @@ export async function GET() {
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "quoteTop",
+        ...(atBlock ? { blockNumber: atBlock } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "depth",
+        ...(atBlock ? { blockNumber: atBlock } : {}),
         args: [MON_ID, 8],
       }) as Promise<readonly [bigint, readonly bigint[], readonly bigint[], readonly bigint[], readonly bigint[]]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "marks",
+        ...(atBlock ? { blockNumber: atBlock } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "marketParams",
+        ...(atBlock ? { blockNumber: atBlock } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>,
       // How this book is configured to produce a mark, so the panel can name the rule
@@ -421,6 +436,8 @@ export async function GET() {
         market: KURU_BOOK,
         oracle: KURU_ORACLE,
         // Everything under `onchain` came from a contract call, at this block.
+        // When a past block was asked for, say so rather than letting it read as live.
+        replayOf: atBlock ? atBlock.toString() : null,
         onchain: {
           block: bookBlock.toString(),
           bid,

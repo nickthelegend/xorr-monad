@@ -42,6 +42,15 @@ export interface LiveState {
   utilisationBps: bigint;
   roundBlocks: number[];
   tickets: LiveTicket[];
+  /**
+   * Every open ticket past its cutoff, whoever opened it.
+   *
+   * Settlement is permissionless — the contract lets anyone poke an expired ticket, and
+   * the keeper exists only to make sure somebody does. A console that settles only its
+   * own tickets quietly implies otherwise, so the desk surfaces the whole queue and
+   * lets a player clear it.
+   */
+  dueTickets: LiveTicket[];
   pending: string | null;
   lastTx: { hash: Hex; label: string } | null;
 }
@@ -140,6 +149,7 @@ export function useLiveDesk(market: MarketDef, tier: number) {
     utilisationBps: 0n,
     roundBlocks: [],
     tickets: [],
+    dueTickets: [],
     pending: null,
     lastTx: null,
   });
@@ -233,6 +243,40 @@ export function useLiveDesk(market: MarketDef, tier: number) {
         tickets = raw.map((t, i) => ({ ...(t as Omit<LiveTicket, "id">), id: recent[i] }));
       }
 
+      /**
+       * The market-wide settle queue, scanned from the newest ticket backwards.
+       *
+       * Bounded on purpose: a full scan from id 1 grows without limit and this runs on
+       * a four-second poll. The tail is where anything unsettled actually is, because
+       * everything older has either been poked already or is past its window.
+       */
+      let dueTickets: LiveTicket[] = [];
+      try {
+        const head = await publicClient.getBlockNumber();
+        const next = (await publicClient.readContract({
+          address: range,
+          abi: RangeMarketAbi,
+          functionName: "nextTicketId",
+        })) as bigint;
+        const ids: bigint[] = [];
+        for (let id = next - 1n; id >= 1n && ids.length < 24; id--) ids.push(id);
+        const rows = await Promise.all(
+          ids.map((id) =>
+            publicClient.readContract({
+              address: range,
+              abi: RangeMarketAbi,
+              functionName: "getTicket",
+              args: [id],
+            }),
+          ),
+        );
+        dueTickets = rows
+          .map((t, i) => ({ ...(t as Omit<LiveTicket, "id">), id: ids[i] }))
+          .filter((t) => t.status === 0 && head >= BigInt(t.expiryBlock));
+      } catch {
+        // The queue is a convenience; the desk works without it.
+      }
+
       if (spot > 0n) {
         const h = historyRef.current;
         const last = h[h.length - 1];
@@ -253,6 +297,7 @@ export function useLiveDesk(market: MarketDef, tier: number) {
         utilisationBps: utilisationBps as bigint,
         roundBlocks,
         tickets,
+        dueTickets,
       }));
     } catch (e) {
       setState((s) => ({ ...s, error: chainErrorText(e) }));
@@ -400,5 +445,55 @@ export function useLiveDesk(market: MarketDef, tier: number) {
     [range, refresh, confirm],
   );
 
-  return { state, connect, fire, settle, quoteOnChain, refresh, explorerTx };
+  /**
+   * Clear the whole due queue in one transaction.
+   *
+   * `settleBatch` exists on the contract and had no way into the product, so a player
+   * looking at eight expired tickets could only poke them one at a time — eight
+   * signatures for something the contract was built to do in one. The contract caps the
+   * batch, so this sends at most that many and leaves the rest for the next press
+   * rather than reverting the lot.
+   */
+  const settleAllDue = useCallback(
+    (ids: bigint[]) =>
+      queued(async () => {
+        const account = accountRef.current;
+        if (!account || !range) throw new Error("connect a wallet first");
+        if (ids.length === 0) throw new Error("nothing is due");
+        const wallet = walletClientFor(account);
+
+        const maxBatch = Number(
+          (await publicClient.readContract({
+            address: range,
+            abi: RangeMarketAbi,
+            functionName: "maxBatch",
+          })) as number | bigint,
+        );
+        const batch = ids.slice(0, Math.max(1, maxBatch));
+
+        setState((s) => ({ ...s, pending: "settling" }));
+        const { request } = await withBackoff("preparing the batch", () =>
+          publicClient.simulateContract({
+            account,
+            address: range,
+            abi: RangeMarketAbi,
+            functionName: "settleBatch",
+            args: [batch],
+          }),
+        );
+        const hash = await wallet.writeContract(request);
+        await confirm(hash, "settle batch");
+
+        setState((s) => ({
+          ...s,
+          pending: null,
+          lastTx: { hash, label: `settled ${batch.length}` },
+        }));
+        void refresh();
+        return hash;
+      }),
+    [range, refresh, confirm],
+  );
+
+  return { state, connect, fire, settle, settleAllDue, quoteOnChain, refresh, explorerTx };
 }

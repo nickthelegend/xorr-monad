@@ -80,6 +80,15 @@ export function PlayScreen() {
   const [lastBand, setLastBand] = useState<{ lowHalf1e4: bigint; highHalf1e4: bigint } | null>(
     null,
   );
+  /**
+   * Attract mode: fire on a cadence so the loop is visible with nobody touching it.
+   *
+   * A console on a table at a hackathon is looked at far more than it is picked up, and
+   * a still screen says nothing about what the thing does. This fires real paper
+   * tickets through the same engine and the same pricing as a person would — it is the
+   * product running, not a recording of it — and it stops the moment anyone interacts.
+   */
+  const [attract, setAttract] = useState(false);
   const [shaking, setShaking] = useState(false);
   const shake = useCallback(() => {
     setShaking(false);
@@ -208,6 +217,28 @@ export function PlayScreen() {
       setTimeout(() => setFlash(null), 1400);
     }
   }, [fire, band.low, band.high, stake, play, shake]);
+
+  useEffect(() => {
+    if (!attract) return;
+    const id = setInterval(() => {
+      // Vary the band a little so consecutive rounds do not look like a loop of one.
+      band.nudge((Math.random() - 0.5) * 0.3);
+      doFire();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [attract, band, doFire]);
+
+  /** Any real input takes the console back. */
+  useEffect(() => {
+    if (!attract) return;
+    const stop = () => setAttract(false);
+    window.addEventListener("pointerdown", stop);
+    window.addEventListener("keydown", stop);
+    return () => {
+      window.removeEventListener("pointerdown", stop);
+      window.removeEventListener("keydown", stop);
+    };
+  }, [attract]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -524,6 +555,7 @@ export function PlayScreen() {
           tickets={state.tickets}
           pnl={state.pnl}
           onReset={reset}
+          onAttract={() => setAttract(true)}
         />
       ) : null}
       {sheet === "howto" ? <HowToSheet onClose={() => setSheet(null)} round={round} /> : null}

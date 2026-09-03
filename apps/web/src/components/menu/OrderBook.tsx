@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Level {
   price: number;
@@ -34,6 +34,8 @@ interface Book {
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
   /** Which oracle OracleRouter sends MON to, read from the chain at this block. */
   routed?: { source: string; label: string } | null;
+  /** Set when this response is a past block rather than the head. */
+  replayOf?: string | null;
   /** The same asset on a centralised book, for scale. */
   basis?: {
     venue: string;
@@ -97,16 +99,37 @@ const sz = (v: number) => {
 export function OrderBook() {
   const [book, setBook] = useState<Book | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /**
+   * How far back to read the book, in blocks. Zero is the head.
+   *
+   * The ladder is a contract call, so this is the same call with a block tag — there is
+   * no snapshot stored anywhere and nothing of ours to trust. Anyone can re-derive what
+   * is on screen from the chain, which is worth more than a copy we saved would be.
+   */
+  const [back, setBack] = useState(0);
+
+  const headRef = useRef(0n);
+  const backRef = useRef(0);
+  useEffect(() => {
+    backRef.current = back;
+  }, [back]);
 
   useEffect(() => {
     let stop = false;
     const load = async () => {
       try {
-        const r = await fetch("/api/kuru", { cache: "no-store" });
+        const r = await fetch(
+          backRef.current > 0 && headRef.current > 0n
+            ? `/api/kuru?block=${headRef.current - BigInt(backRef.current)}`
+            : "/api/kuru",
+          { cache: "no-store" },
+        );
         const j = (await r.json()) as Book;
         if (stop) return;
         if (!r.ok) setErr(j.error ?? `book unavailable (${r.status})`);
         else setErr(null);
+        // Remember the head so stepping back is relative to now, not to a stale anchor.
+        if (!j.replayOf && j.onchain) headRef.current = BigInt(j.onchain.block);
         setBook(j);
       } catch (e) {
         if (!stop) setErr((e as Error).message);
@@ -167,11 +190,35 @@ export function OrderBook() {
           </div>
         </div>
 
-        <div className="mono mt-3 flex items-center gap-2 text-[10px] tracking-[0.08em]">
+        <div className="mono mt-3 flex flex-wrap items-center gap-2 text-[10px] tracking-[0.08em]">
           <span className={`rounded px-1.5 py-0.5 ${health.tone} bg-white/5`}>
             {health.label}
           </span>
           <span className="tnum text-dim">block {b.block}</span>
+          {book.replayOf ? (
+            <span className="rounded bg-amber/15 px-1.5 py-0.5 text-amber">REPLAY</span>
+          ) : null}
+        </div>
+
+        {/* Step back through the chain and watch the same call answer differently. */}
+        <div className="mono mt-2 flex items-center gap-1 text-[9px] tracking-[0.08em]">
+          <span className="text-dim">BOOK AT</span>
+          {[0, 1000, 3000, 10000].map((n) => (
+            <button
+              key={n}
+              onClick={() => setBack(n)}
+              className={`rounded px-1.5 py-0.5 ${
+                back === n ? "bg-amber text-black" : "bg-white/8 text-dim"
+              }`}
+            >
+              {n === 0 ? "NOW" : `−${n / 1000}k`}
+            </button>
+          ))}
+          {back > 0 ? (
+            <span className="ml-1 text-white/35">
+              ≈{Math.round((back * 0.3) / 60)} min ago, read at that block
+            </span>
+          ) : null}
         </div>
 
         {book.reason ? (
