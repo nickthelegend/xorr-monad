@@ -35,6 +35,12 @@ interface Book {
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
   /** Which oracle OracleRouter sends MON to, read from the chain at this block. */
   routed?: { source: string; label: string } | null;
+  /** What it would cost to push the mark 1% either way, from this ladder. */
+  manipulation?: {
+    up: { reachable: boolean; size: number; notional: number; levels: number };
+    down: { reachable: boolean; size: number; notional: number; levels: number };
+    targetBps: number;
+  } | null;
   /** Set when this response is a past block rather than the head. */
   replayOf?: string | null;
   /** The same asset on a centralised book, for scale. */
@@ -266,6 +272,10 @@ export function OrderBook() {
       )}
 
       {b.marks ? <SettlementWindow marks={b.marks} /> : null}
+
+      {book.manipulation ? (
+        <MoveCost m={book.manipulation} window={b.marks?.twapWindow ?? 0} />
+      ) : null}
 
       {book.basis ? <Basis basis={book.basis} /> : null}
 
@@ -660,6 +670,60 @@ function SettlementWindow({
           This market settles on the book as it stands at the cutoff block.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * What moving this mark would actually cost.
+ *
+ * "There are guards" is a claim. This is a number, walked from the ladder shown three
+ * inches above it, and it is the number that makes the settlement window mean
+ * something: the window multiplies it by however many times the attacker has to do it
+ * again as other people's orders refill the levels they cleared.
+ *
+ * Reported as a floor, never as a price, because a snapshot cannot know what refills.
+ */
+function MoveCost({
+  m,
+  window,
+}: {
+  m: NonNullable<Book["manipulation"]>;
+  window: number;
+}) {
+  const money = (v: number) =>
+    v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(2)}`;
+  const blocks = Math.round((window * 1000) / 300);
+
+  return (
+    <div className="mt-3 rounded-2xl bg-[#141414] p-4">
+      <div className="label">Cost to move this mark {m.targetBps / 100}%</div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+        <Stat
+          label="Push it up"
+          value={m.up.reachable ? money(m.up.notional) : "beyond the book"}
+        />
+        <Stat
+          label="Push it down"
+          value={m.down.reachable ? money(m.down.notional) : "beyond the book"}
+        />
+        <Stat
+          label="Levels eaten"
+          value={`${m.up.reachable ? m.up.levels : "—"} up / ${m.down.reachable ? m.down.levels : "—"} down`}
+        />
+        <Stat
+          label="Then held for"
+          value={window > 0 ? `${blocks} blocks` : "one block"}
+        />
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-white/40">
+        Walked from the ladder above, so it is measured rather than assumed. It is a
+        floor and not a price: it buys the move once, and{" "}
+        {window > 0
+          ? `holding it for ${blocks} blocks means paying again every time someone else's resting order refills a level, then paying the spread to unwind.`
+          : "this market settles on one block, so buying it once is all it takes — which is why the others do not."}
+        {m.up.reachable || m.down.reachable ? "" : " This book is too thin in the levels read to reach that target at all."}
+      </p>
     </div>
   );
 }

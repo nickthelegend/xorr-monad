@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { IKuruOrderBookAbi, KuruOracleAbi, OracleRouterAbi } from "@xorr/sdk";
+import { IKuruOrderBookAbi, KuruOracleAbi, OracleRouterAbi, costToMoveMark } from "@xorr/sdk";
 
 /**
  * Kuru's order book, as XORR reads it.
@@ -468,6 +468,21 @@ export async function GET(req: Request) {
         },
         // Which oracle the market is routed to, read from the router at this block.
         routed,
+        /**
+         * What it would cost to move the mark by 1%, walked from this ladder.
+         *
+         * One percent is chosen because it is roughly the width of a band a player
+         * would actually paint, so the number answers the real question: what would
+         * someone have to spend to push a typical ticket out of the money. It is a
+         * lower bound — see costToMoveMark — and the settlement window multiplies it.
+         */
+        manipulation: (() => {
+          const mid = Number(mid8) / 1e8;
+          if (!mid) return null;
+          const up = costToMoveMark(bids, asks, mid * 1.01);
+          const down = costToMoveMark(bids, asks, mid * 0.99);
+          return { up, down, targetBps: 100 };
+        })(),
         // The same asset on a centralised book, and how far apart the two are.
         basis: cex
           ? {

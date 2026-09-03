@@ -127,3 +127,83 @@ export function depthWithin(bids: Level[], asks: Level[], bps: number): number {
     .filter((l) => Math.abs(l.price - mid) <= band)
     .reduce((a, l) => a + l.size, 0);
 }
+
+/**
+ * What it would cost to push the mark to a target price by eating the book.
+ *
+ * An attacker who wants a range to settle outside its band has to move the midpoint,
+ * and the only way to move a midpoint is to consume one side until the touch is where
+ * they want it. This walks the real ladder and reports what that takes — how many
+ * levels, how much base, and how much quote they would have to put up.
+ *
+ * Two things it deliberately does NOT pretend.
+ *
+ * It is a lower bound, not a price. The cost of holding the book there for the length
+ * of the settlement window is larger and unknowable from a snapshot: every second they
+ * hold it, someone else's resting order can refill the level they just cleared, and
+ * they pay the spread again to unwind. The number here is what it costs to get there
+ * once, which is the floor under the real cost.
+ *
+ * And it stops at the end of the ladder rather than extrapolating. A book that does not
+ * reach the target within the levels read is reported as `reachable: false` — inventing
+ * depth beyond what rests there would turn a measurement into a guess.
+ */
+export interface MoveCost {
+  /** Whether the visible ladder reaches the target at all. */
+  reachable: boolean;
+  /** Base units that must be consumed. */
+  size: number;
+  /** Quote that must be put up. */
+  notional: number;
+  /** Levels eaten through. */
+  levels: number;
+  /** Where the touch ends up, which is at or past the target when reachable. */
+  resultingTouch: number;
+  /** Which side has to be consumed to get there. */
+  side: "bids" | "asks";
+}
+
+export function costToMoveMark(
+  bids: Level[],
+  asks: Level[],
+  targetMid: number,
+): MoveCost {
+  const bestBid = bids[0]?.price ?? 0;
+  const bestAsk = asks[0]?.price ?? 0;
+  if (!bestBid || !bestAsk) {
+    return { reachable: false, size: 0, notional: 0, levels: 0, resultingTouch: 0, side: "asks" };
+  }
+  const mid = (bestBid + bestAsk) / 2;
+
+  /**
+   * Moving the mid UP means clearing the asks, because the mid is (bid + ask) / 2 and
+   * the ask is the side above it. Moving it DOWN means clearing the bids. Consuming the
+   * far side is what drags the touch, and therefore the midpoint, along with it.
+   */
+  const up = targetMid > mid;
+  const side: "bids" | "asks" = up ? "asks" : "bids";
+  const ladder = up ? asks : bids;
+
+  let size = 0;
+  let notional = 0;
+  let levels = 0;
+  let touch = up ? bestAsk : bestBid;
+
+  for (const level of ladder) {
+    // The mid once this level becomes the touch: the other side has not moved.
+    const midHere = up ? (bestBid + level.price) / 2 : (level.price + bestAsk) / 2;
+    const reached = up ? midHere >= targetMid : midHere <= targetMid;
+    if (reached && levels > 0) {
+      return { reachable: true, size, notional, levels, resultingTouch: touch, side };
+    }
+    size += level.size;
+    notional += level.size * level.price;
+    levels += 1;
+    touch = level.price;
+  }
+
+  // The ladder ran out before the target. Say so rather than extrapolating.
+  const finalMid = up ? (bestBid + touch) / 2 : (touch + bestAsk) / 2;
+  const reached = up ? finalMid >= targetMid : finalMid <= targetMid;
+  return { reachable: reached, size, notional, levels, resultingTouch: touch, side };
+}
