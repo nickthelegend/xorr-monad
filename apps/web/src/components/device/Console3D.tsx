@@ -157,6 +157,15 @@ export function Console3D({ spin = true }: { spin?: boolean }) {
   const wrap = useRef<HTMLDivElement>(null);
   useEnsureMeasured(wrap);
 
+  /** True once React has begun tearing this down, so teardown noise can be told apart. */
+  const unmounting = useRef(false);
+  useEffect(() => {
+    unmounting.current = false;
+    return () => {
+      unmounting.current = true;
+    };
+  }, []);
+
   if (!webglAvailable || contextLost) return <ConsoleUnavailable />;
 
   return (
@@ -167,10 +176,28 @@ export function Console3D({ spin = true }: { spin?: boolean }) {
       // exhaust the browser's context budget all take the canvas away without throwing.
       // Without this the hero silently becomes an empty rectangle.
       onCreated={({ gl }) => {
-        gl.domElement.addEventListener("webglcontextlost", (e) => {
-          e.preventDefault();
-          setContextLost(true);
-        });
+        /**
+         * Handle context loss ourselves, and keep teardown quiet.
+         *
+         * Three attaches its own listener and logs "WebGLRenderer: Context Lost" — which
+         * is worth having for a real loss and is pure noise on unmount, because
+         * navigating away destroys the canvas and the browser fires the event every
+         * time. Listening in the capture phase lets us decide: during teardown, stop it
+         * before Three sees it; otherwise let it through and show the reader that the
+         * console cannot be drawn.
+         */
+        gl.domElement.addEventListener(
+          "webglcontextlost",
+          (e) => {
+            if (unmounting.current) {
+              e.stopImmediatePropagation();
+              return;
+            }
+            e.preventDefault();
+            setContextLost(true);
+          },
+          { capture: true },
+        );
       }}
       camera={{ position: [0, 0.02, 4.2], fov: 40 }}
       dpr={[1, 2]}

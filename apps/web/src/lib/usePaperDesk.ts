@@ -100,13 +100,31 @@ export function usePaperDesk(initialMarketKey = "BTC") {
         const offset = Math.floor(Math.random() * returns.length);
         const feed = new PaperFeed(market, start, returns, offset);
 
-        // Run the walk forward to fill the backlog rather than seeding a flat line. A
-        // desk that opens on a dead-straight trace reads as broken, and the first band
-        // a player paints has nothing to sit against.
+        /**
+         * Fill the backlog BACKWARDS, so the desk opens exactly where the market is.
+         *
+         * A dead-straight trace reads as broken, so the chart needs history — but
+         * walking the feed forward to produce it moved the opening price a hundred and
+         * sixty replayed seconds away from the real one. The desk then claimed, in the
+         * README and in this file, to "start where the market actually is" while
+         * opening about fifteen basis points from it.
+         *
+         * Running the same real returns in reverse from the fetched price gives a
+         * backlog that leads up to it instead of away from it: the trace is just as
+         * real, and the price on screen when the desk opens is the price the market is
+         * at. The feed itself still starts at that price and steps forward from there.
+         */
         const seeded: PricePoint[] = [];
-        for (let i = 0; i < HISTORY; i++) {
-          seeded.push({ block: engineRef.current!.block - (HISTORY - i), price: feed.step() });
+        const back: bigint[] = [];
+        let p = Number(start);
+        for (let i = 1; i <= HISTORY; i++) {
+          const r = returns[((offset - i) % returns.length + returns.length) % returns.length];
+          p = p / Math.exp(r);
+          back.push(BigInt(Math.max(1, Math.round(p))));
         }
+        back.reverse();
+        const firstBlock = engineRef.current!.block - HISTORY;
+        back.forEach((price, i) => seeded.push({ block: firstBlock + i, price }));
         feedRef.current = feed;
         historyRef.current = seeded;
         setReady(true);
