@@ -295,13 +295,13 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 |---|---|---|---|
 | 8.19 | #52 | Settlement flash expanding from the print point on the chart | NOT STARTED |
 | 8.20 | #58 | Band box burning down toward the cutoff, tied to real block progress | IN PROGRESS — the overlay exists and tracks the nearest ticket; the burn itself is not animated |
-| 8.21 | #59 | Shake on rejection (band too tight / no funds) | NOT STARTED |
+| 8.21 | #59 | Shake on rejection (band too tight / no funds) | IN PROGRESS — wired into the refusal branch and the CSS resolves (`shake`, 260ms), but I could not observe the motion: the browser pane throttles animation while hidden, and a refusal is hard to reach on purpose now that the painter cannot offer an illegal band. Needs one human look |
 | 8.22 | #57 | Odometer roll on the price rather than a jump | NOT STARTED |
 | 8.23 | #64 | Boot-sequence loading state instead of a spinner | NOT STARTED |
 | 8.24 | #72 | Real error boundary around **each sheet**. Only `Console3D` has one today. | NOT STARTED |
 | 8.25 | #73 | Offline detection with an honest banner | DONE — one banner on the real offline/online events. Verified: appears on `offline`, clears on `online`. Offline, three individually-correct error messages read as three outages of three systems when the fact is one |
 | 8.26 | #85 | Mobile viewport correctness at 375px — verify, do not assume | DONE — verified at 375x812 against the public deployment, not assumed: no horizontal overflow, no element past the viewport, the round selector not clipped |
-| 8.27 | #88 | Accessibility pass: focus rings, labels, contrast | NOT STARTED |
+| 8.27 | #88 | Accessibility pass: focus rings, labels, contrast | DONE — zero unlabelled controls (the stake rail was the one, and now announces its step), `lang` set, and a focus ring that is visible on both the cream shell and the black screen. Verified by tabbing: `:focus-visible` matches and the amber ring computes |
 | 8.28 | #94 | Test coverage report | NOT STARTED |
 
 ---

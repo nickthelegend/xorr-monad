@@ -120,6 +120,16 @@ body {
       0 0 0 rgba(0, 0, 0, 0.22);
   }
 
+  /* Keyboard focus has to be visible on both the cream shell and the black screen, so
+     the ring is drawn in the accent with a dark inner edge rather than relying on a
+     single colour that would vanish against one of them. Pointer users never see it. */
+  .key:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px rgba(0, 0, 0, 0.55),
+      0 0 0 5px var(--color-amber);
+  }
+
   /* The recessed black screen. */
   .screen {
     background: var(--color-screen);
@@ -163,6 +173,27 @@ body {
   animation: sheet-up 260ms cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 
+/*
+ * A refusal should be felt, not just read.
+ *
+ * The market rejects a band for specific, nameable reasons, and it prints the reason —
+ * but a line of text appearing in the same place a win message appears is easy to miss
+ * mid-round, and the player's next move is usually to press the key again. A short
+ * lateral shake says "that did not happen" before the words are read.
+ *
+ * Small and fast on purpose: this is a console key refusing travel, not an error dialog.
+ */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.shake {
+  animation: shake 260ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
 @keyframes pop {
   0% {
     transform: scale(0.9);
@@ -192,6 +223,14 @@ body {
 }
 .coin-drop {
   animation: coin-drop 220ms ease-out;
+}
+
+/* Anything focusable that is not a shell key still gets a ring. Without this the only
+   feedback for tabbing through the sheets was the browser's default outline, which the
+   reset removes. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
 }
 
 ::selection {

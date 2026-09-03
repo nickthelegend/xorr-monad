@@ -43,6 +43,11 @@ export function StakeRail({
     <button
       onClick={() => onChange(value >= max ? 1 : value + 1)}
       title="stake"
+      // The only control on the shell with no text and no icon to read. Announce the
+      // value, not just the name — "stake" alone tells a screen reader nothing about
+      // where the rail is set, and the rail IS the value.
+      aria-label={`Stake, step ${value} of ${max}`}
+      role="button"
       className="key relative h-8 flex-1 overflow-hidden rounded-lg bg-[var(--color-cap)]"
     >
       <div

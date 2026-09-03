@@ -52,6 +52,19 @@ export function PlayScreen() {
   const [sheet, setSheet] = useState<null | "menu" | "howto">(null);
   const [live, setLive] = useState(false);
   const [flash, setFlash] = useState<null | { kind: "won" | "lost"; text: string }>(null);
+  /**
+   * Whether the screen is mid-refusal shake.
+   *
+   * Not a remount key: restarting the animation by re-keying the screen would tear down
+   * and rebuild the chart and the cutoff ring on every rejected press, which is a lot of
+   * churn to play a 260ms wobble. Clearing on animationend and re-arming on the next
+   * frame restarts it without touching anything below.
+   */
+  const [shaking, setShaking] = useState(false);
+  const shake = useCallback(() => {
+    setShaking(false);
+    requestAnimationFrame(() => setShaking(true));
+  }, []);
 
   /**
    * Open on the market and round the player last chose.
@@ -137,6 +150,7 @@ export function PlayScreen() {
     if (!r.ok) {
       play("reject");
       const e = r.error;
+      shake();
       setFlash({
         kind: "lost",
         text:
@@ -152,7 +166,7 @@ export function PlayScreen() {
       });
       setTimeout(() => setFlash(null), 1400);
     }
-  }, [fire, band.low, band.high, stake, play]);
+  }, [fire, band.low, band.high, stake, play, shake]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -191,7 +205,10 @@ export function PlayScreen() {
         onToggleRunning={() => setRunning(!state.running)}
       >
         {/* ------------------------------------------------------- main screen */}
-        <div className="screen rounded-xl px-4 pb-2 pt-3">
+        <div
+          className={`screen rounded-xl px-4 pb-2 pt-3 ${shaking ? "shake" : ""}`}
+          onAnimationEnd={() => setShaking(false)}
+        >
           <div className="flex items-start justify-between">
             <div>
               <div className="label">Range · {state.market.symbol}</div>
