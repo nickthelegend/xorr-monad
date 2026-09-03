@@ -32,6 +32,8 @@ interface Book {
     };
   };
   params?: { tickSize: number; minSize: number; maxSize: number; takerFeeBps: number };
+  /** Which oracle OracleRouter sends MON to, read from the chain at this block. */
+  routed?: { source: string; label: string } | null;
   health?: string;
   tradeable?: boolean;
   reason?: string;
@@ -250,29 +252,12 @@ export function OrderBook() {
             <span className="text-[11px] text-amber">not deployed here</span>
           </div>
         ) : (
-          <Addr label="XORR oracle" value={book.oracle} />
+          <>
+            <Addr label="XORR oracle" value={book.oracle} />
+            {book.routed ? <Routed routed={book.routed} oracle={book.oracle} /> : null}
+          </>
         )}
-        {book.via === "book" ? (
-          <p className="mt-3 text-[11px] leading-relaxed text-white/45">
-            These numbers came from a call to Kuru&apos;s own contract at the block
-            above — the market is real and so is the read. What is not in the path here
-            is <span className="text-white">KuruOracle</span>, which is where the mark
-            and the thin-book guards live. This build has no chain of its own to deploy
-            it to, so it is described rather than demonstrated:{" "}
-            <span className="text-white">pnpm demo</span> brings it up against real
-            Monad state, and <span className="text-white">pnpm check:kuru</span> proves
-            it against this same market.
-          </p>
-        ) : (
-        <p className="mt-3 text-[11px] leading-relaxed text-white/45">
-          XORR&apos;s MON mark is{" "}
-          {book.onchain?.marks?.mark === "MICRO"
-            ? "the size-weighted midpoint of these resting orders"
-            : "the midpoint of these resting orders"}
-          , read on-chain by <span className="text-white">KuruOracle</span>. No relayer,
-          no API, nothing off-chain between the venue and the price.
-        </p>
-        )}
+        <MarkProvenance book={book} />
       </div>
     </div>
   );
@@ -397,5 +382,104 @@ function MarkExplainer({
         </p>
       )}
     </div>
+  );
+}
+
+/** True when the chain says MON is settling on something other than this book. */
+function routedAway(book: Book): boolean {
+  const r = book.routed;
+  if (!r || !book.oracle) return false;
+  return !(r.label === "kuru" && r.source.toLowerCase() === book.oracle.toLowerCase());
+}
+
+/**
+ * Where the router actually sends MON, said out loud.
+ *
+ * `OracleRouter` can fall back from the book to the push feed. If it ever does, every
+ * other word on this screen — the ladder, the mark, the guards — is describing a source
+ * the market is no longer settling on. A fallback nobody can see is the one failure
+ * this panel exists to make impossible, so the disagreement is stated in red rather
+ * than left to be inferred from two addresses that happen to differ.
+ */
+function Routed({
+  routed,
+  oracle,
+}: {
+  routed: NonNullable<Book["routed"]>;
+  oracle?: string;
+}) {
+  const onKuru =
+    routed.label === "kuru" &&
+    !!oracle &&
+    routed.source.toLowerCase() === oracle.toLowerCase();
+
+  return (
+    <div className="mt-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="label shrink-0">Router sends MON to</span>
+        <span className={`tnum text-[11px] ${onKuru ? "text-green" : "text-red"}`}>
+          {routed.label || "unlabelled"}
+        </span>
+      </div>
+      {!onKuru ? (
+        <p className="mt-2 rounded-xl bg-[#2a1616] p-3 text-[11px] leading-relaxed text-red">
+          The market is not settling on this book. `OracleRouter.sourceOf` returns{" "}
+          <span className="tnum">{routed.source}</span>, labelled{" "}
+          <span className="text-white">{routed.label || "unlabelled"}</span> — so the
+          ladder and the mark above describe a venue the market has been routed away
+          from. Everything on this screen is still real; it is just no longer what MON
+          settles against.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What produced the mark, in the tense that is actually true right now.
+ *
+ * Three different sentences, because three different things can be the case: the oracle
+ * is not deployed at all, it is deployed but the router has sent MON elsewhere, or it
+ * is deployed and in the path. Collapsing them into the confident version is how a
+ * panel ends up describing a settlement path the market has been routed away from.
+ */
+function MarkProvenance({ book }: { book: Book }) {
+  const mark =
+    book.onchain?.marks?.mark === "MICRO"
+      ? "the size-weighted midpoint of these resting orders"
+      : "the midpoint of these resting orders";
+
+  if (book.via === "book") {
+    return (
+      <p className="mt-3 text-[11px] leading-relaxed text-white/45">
+        These numbers came from a call to Kuru&apos;s own contract at the block above —
+        the market is real and so is the read. What is not in the path here is{" "}
+        <span className="text-white">KuruOracle</span>, which is where the mark and the
+        thin-book guards live. This build has no chain of its own to deploy it to, so it
+        is described rather than demonstrated: <span className="text-white">pnpm demo</span>{" "}
+        brings it up against real Monad state, and{" "}
+        <span className="text-white">pnpm check:kuru</span> proves it against this same
+        market.
+      </p>
+    );
+  }
+
+  if (routedAway(book)) {
+    return (
+      <p className="mt-3 text-[11px] leading-relaxed text-white/45">
+        When MON is routed here, its mark is {mark}, read on-chain by{" "}
+        <span className="text-white">KuruOracle</span> with no relayer and nothing
+        off-chain in between. It is not routed here at the moment, so that is a
+        description of the path rather than of what MON is currently settling on.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-3 text-[11px] leading-relaxed text-white/45">
+      XORR&apos;s MON mark is {mark}, read on-chain by{" "}
+      <span className="text-white">KuruOracle</span>. No relayer, no API, nothing
+      off-chain between the venue and the price.
+    </p>
   );
 }

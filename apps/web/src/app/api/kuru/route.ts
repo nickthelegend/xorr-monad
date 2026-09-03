@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createPublicClient, defineChain, http, type Address, type Hex } from "viem";
-import { IKuruOrderBookAbi, KuruOracleAbi } from "@xorr/sdk";
+import { IKuruOrderBookAbi, KuruOracleAbi, OracleRouterAbi } from "@xorr/sdk";
 
 /**
  * Kuru's order book, as XORR reads it.
@@ -21,6 +21,7 @@ const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 143);
 const RPC = process.env.RPC_UPSTREAM ?? "https://rpc.monad.xyz";
 const KURU_ORACLE = process.env.NEXT_PUBLIC_KURU_ORACLE as Address | undefined;
 const KURU_BOOK = process.env.NEXT_PUBLIC_KURU_BOOK as Address | undefined;
+const ROUTER = process.env.NEXT_PUBLIC_ORACLE as Address | undefined;
 
 /** keccak256("MON-USD") — the market XORR prices from the book. */
 const MON_ID = "0x92bcb7355458a976a0b6be05319d37cc66bc1792624ca67226af747c1de28f62" as Hex;
@@ -215,6 +216,32 @@ async function readBookDirect(pub: ReturnType<typeof createPublicClient>, book: 
   };
 }
 
+
+/**
+ * Which oracle the market is actually routed to right now.
+ *
+ * `OracleRouter` can fall back from the book to the push feed, and a fallback that
+ * happens quietly is worse than one that fails: the console would go on saying the
+ * price is an order book while it had become a relayed feed. Ask the router rather than
+ * assuming, and let the panel state what came back.
+ *
+ * bytes8 label, ascii, right-padded with zeros — "kuru", "keeper", "chainlink".
+ */
+async function routedSource(pub: ReturnType<typeof createPublicClient>, router: Address) {
+  const [source, label] = (await pub.readContract({
+    address: router,
+    abi: OracleRouterAbi,
+    functionName: "sourceOf",
+    args: [MON_ID],
+  })) as readonly [Address, Hex];
+
+  const text = (label.slice(2).match(/.{2}/g) ?? [])
+    .map((b) => String.fromCharCode(parseInt(b, 16)))
+    .join("")
+    .replace(/\0+$/, "");
+  return { source, label: text };
+}
+
 export async function GET() {
   if (!KURU_BOOK) {
     return NextResponse.json(
@@ -309,6 +336,19 @@ export async function GET() {
       venueStats(KURU_BOOK),
     ]);
 
+    /**
+     * A router that is not pointing at this oracle is the interesting case, and it must
+     * not stop the panel rendering — so it is read separately and allowed to fail.
+     */
+    let routed: { source: Address; label: string } | null = null;
+    if (ROUTER) {
+      try {
+        routed = await routedSource(pub, ROUTER);
+      } catch {
+        routed = null;
+      }
+    }
+
     const [bid8, ask8, mid8, spreadBps] = top;
     const [bookBlock, bidPx, bidSz, askPx, askSz] = depth;
 
@@ -369,6 +409,8 @@ export async function GET() {
             dustFloor: Number(dustFloorRaw) / SIZE_PRECISION,
           },
         },
+        // Which oracle the market is routed to, read from the router at this block.
+        routed,
         // The venue's own rules, read from the book rather than assumed.
         params: {
           tickSize: Number(params[2]) / PRICE_PRECISION,

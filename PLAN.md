@@ -267,7 +267,7 @@ their place, in ranked order. Everything not listed here was cut deliberately �
 |---|---|---|---|
 | 8.1 | #11 | Settle-price provenance in the tape: each settled row reads "settled on Kuru mid @ block N" | NOT STARTED |
 | 8.2 | #13 | Show the live basis between Kuru's mid and Binance's mid — makes "our price is the book" concrete by showing where it differs | NOT STARTED |
-| 8.3 | #14 | Fall back from Kuru to the keeper feed **explicitly and visibly**, never silently. Today `OracleRouter` has a fallback; the UI does not announce when it is in use. | NOT STARTED |
+| 8.3 | #14 | Fall back from Kuru to the keeper feed **explicitly and visibly**, never silently. Today `OracleRouter` has a fallback; the UI does not announce when it is in use. | DONE — the panel reads `OracleRouter.sourceOf` and shows where MON is routed. Verified by actually repointing the route on-chain to the keeper feed: the panel turned red, named the address and label, and the provenance paragraph switched to the past tense rather than continuing to claim the mark comes from the book |
 | 8.4 | #15 | Micro-sparkline of the spread over the last N blocks | NOT STARTED |
 | 8.5 | #22 | Encode band edges in tick-size units so they align to the book's grid | NOT STARTED |
 | 8.6 | #23 | Store a depth snapshot with each ticket, for auditable settlement | NOT STARTED |
