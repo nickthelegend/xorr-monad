@@ -45,6 +45,8 @@ interface Book {
   windowMove?: { fromBid: number; fromAsk: number; movedBps: number; blocks: number } | null;
   /** Set when this response is a past block rather than the head. */
   replayOf?: string | null;
+  /** Set when a past block was asked for and the node could not answer for it. */
+  replayUnavailable?: string | null;
   /** The same asset on a centralised book, for scale. */
   basis?: {
     venue: string;
@@ -224,9 +226,19 @@ export function OrderBook() {
             </button>
           ))}
           {back > 0 ? (
-            <span className="ml-1 text-white/35">
-              ≈{Math.round((back * 0.3) / 60)} min ago, read at that block
-            </span>
+            book.replayUnavailable ? (
+              /*
+               * Say the replay could not be served, and keep showing the present.
+               * A node that cannot reach back is not a book that is broken.
+               */
+              <span className="ml-1 text-amber">
+                showing now — {book.replayUnavailable}
+              </span>
+            ) : (
+              <span className="ml-1 text-white/35">
+                ≈{Math.round((back * 0.3) / 60)} min ago, read at that block
+              </span>
+            )
           ) : null}
         </div>
 

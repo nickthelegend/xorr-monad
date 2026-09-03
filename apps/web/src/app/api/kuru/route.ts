@@ -341,33 +341,50 @@ export async function GET(req: Request) {
   }
 
   try {
-    const [top, depth, marks, params, cfg, stats] = await Promise.all([
+    /**
+     * A replay the node cannot serve must not take the live book down with it.
+     *
+     * anvil's fork does not keep the venue's bytecode for every historical block, so a
+     * read tagged at a past block can come back "missing bytecode for code hash". The
+     * first version let that reject the whole request — so asking to look backwards
+     * lost the ladder, the mark, the guards and everything else that was working fine,
+     * and the panel showed a raw client error where the book had been.
+     *
+     * Try the requested block; if the node cannot answer for it, read the present and
+     * say the replay was unavailable. The reader asked a question the chain cannot
+     * answer here, which is a different thing from the book being broken.
+     */
+    let readAt = atBlock;
+    let replayUnavailable: string | null = null;
+
+    const readAll = () =>
+      Promise.all([
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "quoteTop",
-        ...(atBlock ? { blockNumber: atBlock } : {}),
+        ...(readAt ? { blockNumber: readAt } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "depth",
-        ...(atBlock ? { blockNumber: atBlock } : {}),
+        ...(readAt ? { blockNumber: readAt } : {}),
         args: [MON_ID, 8],
       }) as Promise<readonly [bigint, readonly bigint[], readonly bigint[], readonly bigint[], readonly bigint[]]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "marks",
-        ...(atBlock ? { blockNumber: atBlock } : {}),
+        ...(readAt ? { blockNumber: readAt } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint]>,
       pub.readContract({
         address: KURU_ORACLE,
         abi: KuruOracleAbi,
         functionName: "marketParams",
-        ...(atBlock ? { blockNumber: atBlock } : {}),
+        ...(readAt ? { blockNumber: readAt } : {}),
         args: [MON_ID],
       }) as Promise<readonly [bigint, bigint, bigint, bigint, bigint, bigint]>,
       // How this book is configured to produce a mark, so the panel can name the rule
@@ -382,6 +399,16 @@ export async function GET(req: Request) {
       >,
       venueStats(KURU_BOOK),
     ]);
+
+    let [top, depth, marks, params, cfg, stats] = await readAll().catch(async (e) => {
+      if (!readAt) throw e;
+      replayUnavailable =
+        /missing bytecode|missing trie node|header not found/i.test(String(e))
+          ? "this node does not keep the venue's state that far back"
+          : String((e as Error).message).split("\n")[0].slice(0, 120);
+      readAt = undefined;
+      return readAll();
+    });
 
     /**
      * A router that is not pointing at this oracle is the interesting case, and it must
@@ -479,7 +506,9 @@ export async function GET(req: Request) {
         oracle: KURU_ORACLE,
         // Everything under `onchain` came from a contract call, at this block.
         // When a past block was asked for, say so rather than letting it read as live.
-        replayOf: atBlock ? atBlock.toString() : null,
+        replayOf: replayUnavailable ? null : atBlock ? atBlock.toString() : null,
+        // Set when a past block was asked for and the node could not answer for it.
+        replayUnavailable,
         onchain: {
           block: bookBlock.toString(),
           bid,
