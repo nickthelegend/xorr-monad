@@ -160,3 +160,51 @@ keeper publishing and poking. Nothing is mocked.
 | H-10 | Public deployment | The hosted build serves and reports `via: book` honestly |
 
 **Total: 104 items.**
+
+---
+
+# Results
+
+Run in Google Chrome via the Claude in Chrome extension, against the app running on the
+anvil fork of Monad mainnet with the keeper live. Console and network read on every
+browser item.
+
+## Failures found, and what was fixed
+
+| Item | What was wrong | Fix |
+|---|---|---|
+| A-2 | **The hero was blank in any tab that loaded in the background.** react-three-fiber sizes its canvas from a ResizeObserver, and Chrome delivers none to a hidden tab — nor the missed one on becoming visible, because by then the size has not *changed*. Measured: canvas stuck at its 300×150 default against a 372×330 container, and clicking the page did not recover it. Only resizing the window did. | Compare the canvas to the box it should fill after mount and on `visibilitychange`, and dispatch a resize if they disagree. react-use-measure re-measures; the library still owns the sizing |
+| H-2 | `THREE.WebGLRenderer: Context Lost` logged on **every** navigation away from the landing page — tearing down a canvas fires the event and Three's own listener logs it | Listen in the capture phase and stop teardown events before Three sees them. A genuine loss still reaches the reader as a message on the page |
+| B-2 | **The desk opened ~15 bps from the market while claiming to open where it is.** The chart's backlog was built by walking the feed forward 160 replayed seconds, so the opening price was 160 seconds away from the fetched one. Measured: fetched 77,754, opened at 77,870 | Seed the backlog *backwards* — the same real returns in reverse from the fetched price, so the trace leads up to it. Re-measured: 0.7 bps, which is the market moving between two fetches |
+| F-4 | **A replay the node cannot serve took the whole book panel down.** anvil's fork does not keep the venue's bytecode at every historical block; that rejection propagated out of the handler, so asking to look backwards lost the ladder, the mark, the guards and the basis, and rendered a raw client error | Try the requested block, fall back to the present, and say the replay was unavailable |
+| C-8 | The touch-at-window-start line was **silently omitted** when unreadable, making an unanswerable question look like a still book | Say it is unavailable and why |
+| G-4 | **The averaged mark stopped settling for six seconds.** Caught by the re-run: the check passed, failed, then passed. Across 260 on-chain observations there was exactly one gap over the oracle's five-second tolerance — the keeper awaited each poke's *receipt* before scheduling the next, so confirmation latency became the cadence | Send and schedule on the clock, keeping single-flight only so two sends cannot race for a nonce. Re-measured: 60 observations in 60 seconds, largest gap 1s, none over the limit; check run 5× consecutively, 5 passes |
+
+## Untestable in this environment
+
+Chrome throttles a backgrounded tab's timers to one wake per second, and to one per
+minute after five minutes hidden. The Chrome window could not be brought to the
+foreground (browser grants are read-only, by design). Sub-second animation therefore
+cannot be judged here. These were each verified live earlier in this session on the
+same build, and that is stated rather than counted as a fresh pass:
+
+| Item | Earlier evidence |
+|---|---|
+| B-1 boot sequence | "XORR CONSOLE / pricing tables … measured / band solver … ready / fetching real MON tape" |
+| B-4 odometer | exactly one digit column mid-roll across a price change |
+| B-12 burn overlay | ring 329 → 282 blocks while the projected fill advanced |
+| B-13 settlement flash | ring pixels 269 → 635 through a settlement |
+| B-21 refusal shake | 19 max-stake tickets drove the vault to 78.8%, the 20th returned HOUSE FULL and the screen shook |
+| B-24 attract mode | fires unattended and stops on input |
+| E-6 live keyboard | 1.59x → 1.39x widening, → 1.91x tightening |
+| E-8 batch settle | `settleBatch([39,40,41])` in one transaction, status 0x1, 165,529 gas |
+
+**D-12 (sheet error boundary) is untested.** Triggering it needs a fault injected into
+shipped code, and adding a test hook for it would violate the no-mocks rule this run is
+being measured against. The boundary is present and typed; its fallback path has not
+been exercised in a browser.
+
+## Everything else
+
+All remaining items PASS. Zero mocks in shipped code, zero console messages across a
+full landing → desk → menu → book session, and every network request 200.
