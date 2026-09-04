@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MARKETS, RoomMarketAbi, fmtUsd } from "@xorr/sdk";
 import type { Address, Hex } from "viem";
 import {
@@ -128,6 +128,25 @@ export function Rooms() {
   const [joinCode, setJoinCode] = useState("");
   const [newCode, setNewCode] = useState(randomCode);
   const [stakeText, setStakeText] = useState("5");
+  /**
+   * The field only strips letters, which still leaves "", "." and "1.2.3" — each of
+   * which reaches BigInt() as NaN and throws a raw JavaScript message at the player —
+   * and a blank field, which would quietly open a room whose pot is worth nothing.
+   * Parse in one place so the button can refuse and say which bound was missed, the
+   * way the desk refuses a stake it cannot cover.
+   */
+  const parsedStake = useMemo((): { units: bigint } | { error: string } => {
+    const t = stakeText.trim();
+    if (t === "") return { error: "Enter a stake." };
+    if ((t.match(/\./g) ?? []).length > 1) return { error: "That is not a number." };
+    const n = Number(t);
+    if (!Number.isFinite(n)) return { error: "That is not a number." };
+    if (n <= 0) return { error: "The stake has to be more than zero." };
+    const frac = t.split(".")[1] ?? "";
+    if (frac.length > 6) return { error: "AUSD only goes to six decimal places." };
+    return { units: BigInt(Math.round(n * 1e6)) };
+  }, [stakeText]);
+  const stakeError = "error" in parsedStake ? parsedStake.error : null;
   const [halfBps, setHalfBps] = useState(25);
   const [tierBlocks, setTierBlocks] = useState(1000);
 
@@ -257,7 +276,8 @@ export function Rooms() {
       setAccount(who);
 
       const market = MARKETS.find((m) => m.live) ?? MARKETS[0];
-      const stake = BigInt(Math.round(Number(stakeText) * 1e6));
+      if ("error" in parsedStake) throw new Error(parsedStake.error);
+      const stake = parsedStake.units;
       await ensureAllowance(who, stake);
 
       const spot = await bandAround(market.marketId as Hex);
@@ -289,7 +309,7 @@ export function Rooms() {
     } finally {
       setBusy(null);
     }
-  }, [room, stakeText, halfBps, tierBlocks, newCode, ensureAllowance, bandAround, load]);
+  }, [room, parsedStake, halfBps, tierBlocks, newCode, ensureAllowance, bandAround, load]);
 
   const joinRoom = useCallback(
     async (code: string, stake: bigint, marketId: Hex) => {
@@ -473,8 +493,12 @@ export function Rooms() {
           </p>
         </div>
 
+        {stakeError ? (
+          <p className="mt-3 text-[11px] leading-relaxed text-red">{stakeError}</p>
+        ) : null}
+
         <button
-          disabled={!!busy}
+          disabled={!!busy || !!stakeError}
           onClick={() => void create()}
           className="key mt-3 w-full rounded-xl bg-gradient-to-b from-[#f2564c] to-[#c8362e] py-3 text-[14px] font-semibold text-white disabled:opacity-40"
         >

@@ -208,3 +208,79 @@ been exercised in a browser.
 
 All remaining items PASS. Zero mocks in shipped code, zero console messages across a
 full landing → desk → menu → book session, and every network request 200.
+
+---
+
+# Follow-up run
+
+## A correction to "Untestable in this environment"
+
+The reasoning recorded above was wrong. The claim was that the Chrome window could not
+be brought to the foreground and that sub-second animation therefore could not be
+judged at all. The window was never the problem: the tab being driven was a *background
+tab inside its own window*, and Chrome reports `visibilityState: "hidden"` for that
+whether or not the window is frontmost.
+
+Creating a second tab in an existing tab group makes it the active one. Measured
+directly on the running app: `visibilityState: "visible"`, **76 requestAnimationFrame
+callbacks in one second**, against 0 in the tab used for the previous run. So the
+animation surface *is* reachable here, and the earlier entry overstated the limit.
+
+The eight motion items are still carried on the evidence gathered live earlier in the
+session rather than re-verified in this run — the Chrome extension disconnected and the
+whole stack was restarted mid-pass — but they are no longer described as environmentally
+impossible, because they are not.
+
+## D-12, and a real bug found underneath it
+
+Looking for a way to make a sheet throw *without* injecting a fake, the search turned up
+a genuine defect instead, in the class the plan set out to cover ("invalid input").
+
+`Rooms.tsx` built the room stake with `BigInt(Math.round(Number(stakeText) * 1e6))`. The
+field strips letters, which still leaves three reachable inputs:
+
+| Typed | Old behaviour |
+|---|---|
+| *(empty)* | `Number("")` is `0` → opens a room whose pot is worth nothing |
+| `.` or `1.2.3` | `Number` is `NaN` → **`BigInt(NaN)` throws**, surfacing `Cannot convert NaN to a BigInt` |
+| `1.1234567` | silently rounded away below AUSD's six decimals |
+
+The contract has no stake bound to lean on — `createRoom` takes a `uint128` and asks
+nothing of it — so refusing has to happen in the interface. The stake is now parsed in
+one place and the button refuses and *names the bound*, the way the desk already refuses
+a stake it cannot cover (B-17), rather than clamping or throwing.
+
+Verified in the browser against the production build, driving the real field:
+
+| Typed | Button | Says |
+|---|---|---|
+| `5` | enabled | — |
+| *(empty)* | disabled | Enter a stake. |
+| `.` | disabled | That is not a number. |
+| `1.2.3` | disabled | That is not a number. |
+| `0` | disabled | The stake has to be more than zero. |
+| `1.1234567` | disabled | AUSD only goes to six decimal places. |
+| `2.50` | enabled | — |
+
+Zero console messages across that flow.
+
+**D-12 itself remains untested.** Every remaining path into the boundary is now guarded,
+which is the right outcome for the product and leaves the boundary with no reachable
+trigger to exercise. Reaching it would mean injecting a throw into shipped code, and
+this run is measured against a no-mocks rule.
+
+## Suite, re-run against a fresh fork
+
+Fork re-forked at block 101,837,675, contracts redeployed, real Agora AUSD, keeper live.
+
+| Check | Result |
+|---|---|
+| `forge test` + SDK tests | pass |
+| `typecheck` | clean |
+| `parity` | 1,728 quotes identical |
+| `check:kuru` | PASS — settles on the average, not the instant; guards refuse a thin book |
+| `check:chain` | PASS — deployed contract and SDK price identically |
+| `check:edge` | PASS — every round vault-positive on all 4 windows (thinnest 14.03%) |
+| `check:width` | no negative-edge cell |
+| `check:win` | PASS — winner paid exactly the promised payout |
+| `check:room` | PASS — pot conserved, house bankroll untouched |
