@@ -281,8 +281,8 @@ export function Vault() {
           {/* The cap is drawn, so a full house is visible before it is hit. */}
           <div className="relative mt-1.5 h-2 overflow-hidden rounded-full bg-[#242424]">
             <div
-              className={`h-full rounded-full transition-[width] duration-500 ${util > 60 ? "bg-amber" : "bg-green-2"}`}
-              style={{ width: `${Math.min(100, (util / 80) * 100)}%` }}
+              className={`h-full w-full origin-left transition-transform duration-[240ms] ease-out ${util > 60 ? "bg-amber" : "bg-green-2"}`}
+              style={{ transform: `scaleX(${Math.min(1, util / 80)})` }}
             />
             <span className="absolute inset-y-0 right-0 w-[1px] bg-red" aria-hidden />
           </div>

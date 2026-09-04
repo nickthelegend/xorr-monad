@@ -65,7 +65,7 @@ export function Customize() {
               key={t.id}
               onClick={() => set("theme", t.id)}
               aria-pressed={active}
-              className={`rounded-2xl p-3 text-left transition-all ${
+              className={`rounded-2xl p-3 text-left transition-[background-color,box-shadow] duration-200 ease-out ${
                 active ? "bg-[#1c1a14] ring-2 ring-amber" : "bg-[#141414] hover:bg-[#1a1a1a]"
               }`}
             >

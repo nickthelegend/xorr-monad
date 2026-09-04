@@ -116,8 +116,8 @@ function Toggle({
         } ${disabled ? "opacity-50" : ""}`}
       >
         <span
-          className="absolute top-[3px] h-5 w-5 rounded-full bg-white transition-all"
-          style={{ left: value ? 23 : 3 }}
+          className="absolute left-[3px] top-[3px] h-5 w-5 rounded-full bg-white transition-transform duration-200 ease-out"
+          style={{ transform: `translateX(${value ? 20 : 0}px)` }}
         />
       </button>
     </div>

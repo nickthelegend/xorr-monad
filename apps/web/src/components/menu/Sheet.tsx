@@ -29,7 +29,7 @@ export function Sheet({
       <button
         aria-label="close"
         onClick={onClose}
-        className="absolute inset-0 bg-black/55 backdrop-blur-[3px]"
+        className="scrim-in absolute inset-0 bg-black/55 backdrop-blur-[3px]"
       />
       <div className="sheet-up relative flex max-h-[88dvh] w-full max-w-[420px] flex-col rounded-t-[22px] bg-black">
         <div className="flex justify-center pb-1 pt-2">

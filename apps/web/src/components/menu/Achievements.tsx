@@ -176,8 +176,8 @@ export function Achievements({ tickets }: { tickets: PaperTicket[] }) {
         </div>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#242424]">
           <div
-            className="h-full rounded-full bg-amber transition-[width] duration-500"
-            style={{ width: `${(earned / awards.length) * 100}%` }}
+            className="h-full w-full origin-left bg-amber transition-transform duration-[240ms] ease-out"
+            style={{ transform: `scaleX(${earned / awards.length})` }}
           />
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-white/40">
